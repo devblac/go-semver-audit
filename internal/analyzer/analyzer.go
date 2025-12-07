@@ -9,6 +9,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Allow overriding in tests
+var (
+	packagesLoad        = packages.Load
+	packagesPrintErrors = packages.PrintErrors
+)
+
 // Analyzer performs static analysis on Go projects
 type Analyzer struct {
 	projectPath string
@@ -117,12 +123,12 @@ func (a *Analyzer) loadProject() error {
 		Dir: a.projectPath,
 	}
 
-	pkgs, err := packages.Load(cfg, "./...")
+	pkgs, err := packagesLoad(cfg, "./...")
 	if err != nil {
 		return fmt.Errorf("failed to load packages: %w", err)
 	}
 
-	if packages.PrintErrors(pkgs) > 0 {
+	if packagesPrintErrors(pkgs) > 0 {
 		return fmt.Errorf("packages contain errors")
 	}
 
@@ -173,7 +179,7 @@ func (a *Analyzer) loadModuleAPI(module, version string) (*API, error) {
 	}
 
 	modulePattern := fmt.Sprintf("%s@%s", module, version)
-	pkgs, err := packages.Load(cfg, modulePattern)
+	pkgs, err := packagesLoad(cfg, modulePattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load module %s: %w", modulePattern, err)
 	}
