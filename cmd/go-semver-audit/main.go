@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yourusername/go-semver-audit/internal/analyzer"
-	"github.com/yourusername/go-semver-audit/internal/report"
+	"github.com/devblac/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/report"
 )
 
 const version = "0.1.0"

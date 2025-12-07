@@ -1,4 +1,4 @@
-module github.com/yourusername/go-semver-audit
+module github.com/devblac/go-semver-audit
 
 go 1.21
 

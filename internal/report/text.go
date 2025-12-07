@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yourusername/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/analyzer"
 )
 
 // FormatText generates a human-readable text report

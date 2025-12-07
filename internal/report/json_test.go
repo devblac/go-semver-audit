@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/yourusername/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/analyzer"
 )
 
 func TestFormatJSON(t *testing.T) {

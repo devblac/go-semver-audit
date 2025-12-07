@@ -51,7 +51,7 @@ Enhancement suggestions are welcome! Include:
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/go-semver-audit.git
+git clone https://github.com/devblac/go-semver-audit.git
 cd go-semver-audit
 
 # Install dependencies

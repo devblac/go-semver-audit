@@ -90,7 +90,7 @@ Replace `yourusername` in these locations:
 2. **go.mod** - Module path
 3. **Test files** - Import paths
 
-Current placeholder: `github.com/yourusername/go-semver-audit`
+Current placeholder: `github.com/devblac/go-semver-audit`
 
 ## Local Testing Commands
 
@@ -137,7 +137,7 @@ make clean
 ### Required Actions
 
 1. **Update GitHub Username**:
-   - Replace `yourusername` in all files with actual GitHub username
+   - Replace `yourusername` in all files with actual GitHub username (now done: devblac)
    - Files to update: README.md, go.mod, all test files, TESTING.md
 
 2. **Set Up Codecov** (Optional):

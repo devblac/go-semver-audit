@@ -3,7 +3,7 @@ package report
 import (
 	"encoding/json"
 
-	"github.com/yourusername/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/analyzer"
 )
 
 // JSONReport represents the JSON output structure

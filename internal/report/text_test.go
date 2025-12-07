@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yourusername/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/analyzer"
 )
 
 func TestFormatText(t *testing.T) {

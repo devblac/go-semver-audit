@@ -8,7 +8,7 @@ Get started with `go-semver-audit` in 5 minutes.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/go-semver-audit.git
+git clone https://github.com/devblac/go-semver-audit.git
 cd go-semver-audit
 
 # Build and install
@@ -243,5 +243,5 @@ For large projects, the first run may be slow as Go downloads module versions. S
 go-semver-audit -help
 ```
 
-For more information, visit the [GitHub repository](https://github.com/yourusername/go-semver-audit).
+For more information, visit the [GitHub repository](https://github.com/devblac/go-semver-audit).
 

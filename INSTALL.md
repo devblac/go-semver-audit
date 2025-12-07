@@ -22,7 +22,7 @@ This method compiles and installs the binary to your `$GOPATH/bin` (or `$GOBIN`)
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/go-semver-audit.git
+git clone https://github.com/devblac/go-semver-audit.git
 cd go-semver-audit
 
 # Install the binary
@@ -55,7 +55,7 @@ Build the binary without installing it system-wide:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/go-semver-audit.git
+git clone https://github.com/devblac/go-semver-audit.git
 cd go-semver-audit
 
 # Build using make
@@ -82,7 +82,7 @@ The binary will be in the `bin/` directory:
 Once published, you can install directly from GitHub:
 
 ```bash
-go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 ```
 
 ## Platform-Specific Instructions
@@ -100,7 +100,7 @@ echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.bashrc
 source ~/.bashrc
 
 # Install go-semver-audit
-go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 ```
 
 ### macOS
@@ -114,7 +114,7 @@ echo 'export PATH=$PATH:$(go env GOPATH)/bin' >> ~/.zshrc
 source ~/.zshrc
 
 # Install go-semver-audit
-go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 ```
 
 ### Windows
@@ -124,7 +124,7 @@ go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
 3. Install go-semver-audit:
 
 ```powershell
-go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 ```
 
 4. Add Go bin to PATH if not automatic:
@@ -156,7 +156,7 @@ For development or contributing:
 
 ```bash
 # Clone and enter directory
-git clone https://github.com/yourusername/go-semver-audit.git
+git clone https://github.com/devblac/go-semver-audit.git
 cd go-semver-audit
 
 # Download dependencies
@@ -262,7 +262,7 @@ rm -rf go-semver-audit
 ### If Installed via go install
 
 ```bash
-go install github.com/yourusername/go-semver-audit/cmd/go-semver-audit@latest
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 ```
 
 ### If Built from Source
@@ -284,7 +284,7 @@ make install
 If you encounter issues:
 
 1. Check the [Troubleshooting](#troubleshooting) section above
-2. Search existing [GitHub Issues](https://github.com/yourusername/go-semver-audit/issues)
+2. Search existing [GitHub Issues](https://github.com/devblac/go-semver-audit/issues)
 3. Open a new issue with:
    - Go version (`go version`)
    - OS and version
