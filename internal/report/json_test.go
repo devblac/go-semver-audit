@@ -183,4 +183,3 @@ func TestJSONReportStructure(t *testing.T) {
 		t.Errorf("Removed.UsedIn[0].Line = %d, want 10", removed.UsedIn[0].Line)
 	}
 }
-

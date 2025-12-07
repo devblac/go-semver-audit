@@ -23,4 +23,3 @@ func main() {
 	result := oldlib.Transform("test")
 	fmt.Println(result)
 }
-

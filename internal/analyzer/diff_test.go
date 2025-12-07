@@ -11,9 +11,9 @@ func TestDiffAPIs(t *testing.T) {
 		newAPI *API
 		usage  *Usage
 		want   struct {
-			removedCount  int
-			addedCount    int
-			changedCount  int
+			removedCount   int
+			addedCount     int
+			changedCount   int
 			interfaceCount int
 		}
 	}{
@@ -35,9 +35,9 @@ func TestDiffAPIs(t *testing.T) {
 				},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{0, 0, 0, 0},
 		},
@@ -57,9 +57,9 @@ func TestDiffAPIs(t *testing.T) {
 				},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{1, 0, 0, 0},
 		},
@@ -77,9 +77,9 @@ func TestDiffAPIs(t *testing.T) {
 				Symbols: map[string][]Location{},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{0, 0, 0, 0},
 		},
@@ -97,9 +97,9 @@ func TestDiffAPIs(t *testing.T) {
 				Symbols: map[string][]Location{},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{0, 1, 0, 0},
 		},
@@ -121,9 +121,9 @@ func TestDiffAPIs(t *testing.T) {
 				},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{0, 0, 1, 0},
 		},
@@ -151,9 +151,9 @@ func TestDiffAPIs(t *testing.T) {
 				},
 			},
 			want: struct {
-				removedCount  int
-				addedCount    int
-				changedCount  int
+				removedCount   int
+				addedCount     int
+				changedCount   int
 				interfaceCount int
 			}{0, 0, 0, 1},
 		},
@@ -181,11 +181,11 @@ func TestDiffAPIs(t *testing.T) {
 
 func TestDiffInterfaces(t *testing.T) {
 	tests := []struct {
-		name    string
+		name     string
 		oldIface *Interface
 		newIface *Interface
-		usage   *Usage
-		wantNil bool
+		usage    *Usage
+		wantNil  bool
 	}{
 		{
 			name: "no changes",
@@ -264,4 +264,3 @@ func TestDiffInterfaces(t *testing.T) {
 		})
 	}
 }
-

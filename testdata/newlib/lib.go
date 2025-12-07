@@ -49,4 +49,3 @@ type Result struct {
 	Data    string
 	Error   error // New field
 }
-

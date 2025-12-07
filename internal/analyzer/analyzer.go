@@ -63,11 +63,11 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 	diff := diffAPIs(oldAPI, newAPI, usage)
 
 	return &Result{
-		Module:       upgrade.Module,
-		OldVersion:   upgrade.OldVersion,
-		NewVersion:   upgrade.NewVersion,
-		Changes:      diff,
-		UnusedDeps:   nil, // Filled by separate call if requested
+		Module:     upgrade.Module,
+		OldVersion: upgrade.OldVersion,
+		NewVersion: upgrade.NewVersion,
+		Changes:    diff,
+		UnusedDeps: nil, // Filled by separate call if requested
 	}, nil
 }
 
@@ -169,7 +169,7 @@ func (a *Analyzer) loadModuleAPI(module, version string) (*API, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax |
 			packages.NeedTypesInfo,
-		Env: append(os.Environ(), fmt.Sprintf("GOFLAGS=-mod=readonly")),
+		Env: append(os.Environ(), "GOFLAGS=-mod=readonly"),
 	}
 
 	modulePattern := fmt.Sprintf("%s@%s", module, version)
@@ -260,8 +260,8 @@ func (a *Analyzer) loadModuleAPI(module, version string) (*API, error) {
 // findUsage identifies which exported symbols from the module are used in the project
 func (a *Analyzer) findUsage(module string) *Usage {
 	usage := &Usage{
-		Symbols:   make(map[string][]Location),
-		Imports:   make(map[string]bool),
+		Symbols: make(map[string][]Location),
+		Imports: make(map[string]bool),
 	}
 
 	for _, pkg := range a.pkgs {
@@ -345,4 +345,3 @@ func extractModulePath(importPath string) string {
 	// This works for most cases
 	return importPath
 }
-

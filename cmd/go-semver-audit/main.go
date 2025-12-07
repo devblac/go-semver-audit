@@ -138,4 +138,3 @@ func determineExitCode(result *analyzer.Result, strict bool) int {
 
 	return 0
 }
-

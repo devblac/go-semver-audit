@@ -35,4 +35,3 @@ type Result struct {
 	Success bool
 	Data    string
 }
-

@@ -22,4 +22,3 @@ func (h *MyHandler) Close() error {
 
 // Verify interface implementation
 var _ oldlib.Handler = (*MyHandler)(nil)
-

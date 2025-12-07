@@ -180,4 +180,3 @@ func TestResultHasWarnings(t *testing.T) {
 		})
 	}
 }
-

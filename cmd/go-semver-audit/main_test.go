@@ -150,4 +150,3 @@ func TestConfigStruct(t *testing.T) {
 		t.Errorf("Expected showVersion false, got true")
 	}
 }
-

@@ -266,4 +266,3 @@ func TestCountAffectedLocations(t *testing.T) {
 		t.Errorf("countAffectedLocations() = %d, want %d", got, want)
 	}
 }
-

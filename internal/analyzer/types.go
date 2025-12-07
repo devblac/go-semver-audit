@@ -87,9 +87,9 @@ type Diff struct {
 
 // RemovedSymbol represents a symbol that was removed
 type RemovedSymbol struct {
-	Name      string
-	Type      string // "function", "type", "interface"
-	UsedIn    []Location
+	Name   string
+	Type   string // "function", "type", "interface"
+	UsedIn []Location
 }
 
 // AddedSymbol represents a symbol that was added
@@ -108,11 +108,11 @@ type ChangedSignature struct {
 
 // InterfaceChange represents changes to an interface
 type InterfaceChange struct {
-	Name            string
-	AddedMethods    []string
-	RemovedMethods  []string
-	ChangedMethods  []string
-	UsedIn          []Location
+	Name           string
+	AddedMethods   []string
+	RemovedMethods []string
+	ChangedMethods []string
+	UsedIn         []Location
 }
 
 // ParseUpgrade parses an upgrade specification like "module@version"
@@ -143,4 +143,3 @@ type ParseError struct {
 func (e *ParseError) Error() string {
 	return "invalid upgrade specification: " + e.Spec + " (expected format: module@version)"
 }
-

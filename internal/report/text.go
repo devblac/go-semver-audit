@@ -149,4 +149,3 @@ func countAffectedLocations(changes *analyzer.Diff) int {
 
 	return count
 }
-

@@ -146,4 +146,3 @@ func diffInterfaces(name string, oldIface, newIface *Interface, usage *Usage) *I
 
 	return nil
 }
-
