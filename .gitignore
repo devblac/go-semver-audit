@@ -4,52 +4,59 @@
 *.dll
 *.so
 *.dylib
-bin/
-dist/
-
-# Test binary, built with `go test -c`
-*.test
 
 # Output of the go coverage tool
 *.out
-coverage.txt
-coverage.html
 
 # Go workspace file
 go.work
 go.work.sum
 
+# Build output
+/bin/
+/dist/
+
 # Dependency directories
-vendor/
+/vendor/
 
-# Go build cache
-.cache/
-
-# IDE and editor files
-.vscode/
+# IDE / Editor directories
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
 .DS_Store
-
-# OS-specific files
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
-desktop.ini
+Desktop.ini
 
-# Log files
-*.log
+# Test artifacts
+*.test
+*.prof
+coverage.html
+coverage.txt
 
-# Temporary files
-tmp/
-temp/
-.tmp/
+# Debug
+__debug_bin*
 
-# Local configuration files
+# Local environment files
 .env
 .env.local
+*.local
 
-# Backup files
-*.bak
-*.backup
-
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/

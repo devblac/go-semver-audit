@@ -27,8 +27,8 @@ test:
 # Run tests with coverage
 test-coverage:
 	@echo "Running tests with coverage..."
-	$(GOTEST) -cover -coverprofile=coverage.txt ./...
-	$(GOCMD) tool cover -html=coverage.txt -o coverage.html
+	$(GOTEST) -cover -coverprofile=coverage.out ./...
+	$(GOCMD) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
 # Install the binary
@@ -41,7 +41,7 @@ clean:
 	@echo "Cleaning..."
 	$(GOCLEAN)
 	rm -rf $(BUILD_DIR)
-	rm -f coverage.txt coverage.html
+	rm -f coverage.out coverage.html
 
 # Format code
 fmt:

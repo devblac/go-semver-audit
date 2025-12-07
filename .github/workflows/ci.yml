@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
   test:
@@ -12,71 +12,93 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        go: ['1.21', '1.22']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['1.21', '1.22']
     
     steps:
-    - name: Check out code
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: ${{ matrix.go }}
+        go-version: ${{ matrix.go-version }}
 
     - name: Download dependencies
       run: go mod download
 
-    - name: Run tests
-      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+    - name: Verify dependencies
+      run: go mod verify
 
-    - name: Upload coverage
-      uses: codecov/codecov-action@v3
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Generate coverage report
+      run: go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
+      uses: codecov/codecov-action@v4
       with:
-        files: ./coverage.txt
+        files: ./coverage.out
         flags: unittests
-        name: codecov-${{ matrix.os }}-go${{ matrix.go }}
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+    - name: Upload coverage artifacts
+      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          coverage.out
+          coverage.html
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
     
     steps:
-    - name: Check out code
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: '1.22'
 
     - name: Run go vet
       run: go vet ./...
 
-    - name: Run gofmt
+    - name: Run go fmt
       run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "Code is not formatted. Please run 'go fmt ./...'"
-          gofmt -s -l .
+        if [ -n "$(gofmt -s -l .)" ]; then
+          echo "Go code is not formatted:"
+          gofmt -s -d .
           exit 1
         fi
+
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+    - name: Run staticcheck
+      run: staticcheck ./...
 
   build:
     name: Build
     runs-on: ubuntu-latest
     
     steps:
-    - name: Check out code
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version: '1.22'
 
-    - name: Build binary
-      run: go build -v -o bin/go-semver-audit ./cmd/go-semver-audit
+    - name: Build
+      run: go build -v ./cmd/go-semver-audit
 
-    - name: Verify binary
-      run: ./bin/go-semver-audit -version
-
+    - name: Test build output
+      run: ./go-semver-audit -version
