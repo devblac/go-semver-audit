@@ -1,10 +1,30 @@
 # Quick Start Guide
 
-Get started with `go-semver-audit` in 5 minutes.
+Get started with `go-semver-audit` in 30 seconds.
+
+## 30-second quickstart
+```bash
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
+cd /path/to/your/go/project
+go-semver-audit -upgrade github.com/pkg/errors@v0.9.1
+```
+You’ll get a text report by default. Add `-json` for automation or `-strict` to fail on warnings.
+
+## When to use it
+- Before bumping a dependency (especially majors/multi-version jumps)
+- When you need to show teammates what an upgrade will break
+- To decide if an upgrade is safe before opening a PR
 
 ## Installation
 
-### Option 1: Install from Source (Recommended)
+### Option 1: Go install (recommended)
+
+```bash
+go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
+go-semver-audit -version
+```
+
+### Option 2: Install from Source
 
 ```bash
 # Clone the repository
@@ -18,7 +38,7 @@ make install
 go-semver-audit -version
 ```
 
-### Option 2: Build Locally
+### Option 3: Build locally
 
 ```bash
 # Build the binary
@@ -30,7 +50,7 @@ make build
 
 ## Basic Usage
 
-### 1. Check a Single Dependency Upgrade
+### 1. Check a single dependency upgrade
 
 Navigate to your Go project and run:
 
@@ -43,7 +63,7 @@ This will:
 - Identify breaking changes
 - Show which changes affect your code
 
-### 2. View Detailed Output
+### 2. View detailed output
 
 Use verbose mode for more details:
 
@@ -51,7 +71,7 @@ Use verbose mode for more details:
 go-semver-audit -upgrade github.com/gin-gonic/gin@v1.9.0 -v
 ```
 
-### 3. Get JSON Output for CI
+### 3. Get JSON output for CI
 
 Perfect for automation and CI pipelines:
 
@@ -59,7 +79,13 @@ Perfect for automation and CI pipelines:
 go-semver-audit -upgrade golang.org/x/sync@v0.5.0 -json > report.json
 ```
 
-### 4. Strict Mode for CI
+### 4. Save an HTML report to share
+
+```bash
+go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -html > audit.html
+```
+
+### 5. Strict mode for CI
 
 Exit with non-zero code even on warnings:
 
@@ -67,7 +93,7 @@ Exit with non-zero code even on warnings:
 go-semver-audit -upgrade github.com/stretchr/testify@v1.8.0 -strict
 ```
 
-### 5. Detect Unused Dependencies
+### 6. Detect unused dependencies
 
 After analyzing an upgrade, check for unused dependencies:
 

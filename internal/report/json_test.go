@@ -107,6 +107,12 @@ func TestFormatJSON(t *testing.T) {
 				if report.Breaking != tt.result.HasBreakingChanges() {
 					t.Errorf("JSONReport.Breaking = %v, want %v", report.Breaking, tt.result.HasBreakingChanges())
 				}
+				if report.BreakingCount != len(tt.result.Changes.Removed)+len(tt.result.Changes.Changed)+len(tt.result.Changes.InterfaceChanges) {
+					t.Errorf("JSONReport.BreakingCount = %d, want %d", report.BreakingCount, len(tt.result.Changes.Removed)+len(tt.result.Changes.Changed)+len(tt.result.Changes.InterfaceChanges))
+				}
+				if report.AffectedLocations != countAffectedLocations(tt.result.Changes) {
+					t.Errorf("JSONReport.AffectedLocations = %d, want %d", report.AffectedLocations, countAffectedLocations(tt.result.Changes))
+				}
 
 				// Validate removed symbols
 				if len(report.Removed) != len(tt.result.Changes.Removed) {

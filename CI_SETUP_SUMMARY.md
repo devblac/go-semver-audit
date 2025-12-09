@@ -49,6 +49,23 @@ This document summarizes the continuous integration and testing infrastructure a
 
 ## CI Pipeline Overview
 
+### Quick guardrail (copy/paste)
+
+```yaml
+- uses: actions/setup-go@v5
+  with:
+    go-version: "1.22"
+- name: Audit dependency upgrade
+  env:
+    MODULE: github.com/pkg/errors
+    VERSION: v0.9.1
+  run: go-semver-audit -upgrade ${MODULE}@${VERSION} -json -strict > semver-report.json
+- uses: actions/upload-artifact@v4
+  with:
+    name: semver-report
+    path: semver-report.json
+```
+
 ### Test Job
 - **Matrix**: 3 OS × 2 Go versions = 6 test configurations
 - **Features**:

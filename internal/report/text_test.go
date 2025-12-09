@@ -54,6 +54,9 @@ func TestFormatText(t *testing.T) {
 			verbose: false,
 			want: []string{
 				"BREAKING CHANGES",
+				"Summary: 1 breaking change(s) affecting 1 location(s).",
+				"What to fix next:",
+				"Remove/replace OldFunc (function) at main.go:45",
 				"Removed Symbols",
 				"OldFunc",
 				"function",

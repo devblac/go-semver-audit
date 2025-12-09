@@ -262,6 +262,73 @@ func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
 	}
 }
 
+func TestRun_HTMLReport(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	stdoutWriter = stdout
+	stderrWriter = stderr
+
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{
+			Module:     "github.com/example/mod",
+			OldVersion: "v1.0.0",
+			NewVersion: "v1.1.0",
+		}, nil
+	}
+
+	fakeAnalyzer := &stubAnalyzer{
+		analyzeResult: &analyzer.Result{
+			Module:  "github.com/example/mod",
+			Changes: &analyzer.Diff{},
+		},
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) { return fakeAnalyzer, nil }
+	formatHTMLFn = func(res *analyzer.Result) (string, error) { return "<html>ok</html>", nil }
+
+	cfg := config{
+		projectPath: "testdata/userproject",
+		upgrade:     "github.com/example/mod@v1.1.0",
+		htmlOutput:  true,
+	}
+
+	if err := run(cfg); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "<html>ok</html>") {
+		t.Fatalf("expected HTML output, got %q", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected no stderr output, got %q", stderr.String())
+	}
+}
+
+func TestRun_JSONAndHTMLConflict(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{Module: "example.com/mod"}, nil
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) {
+		return &stubAnalyzer{analyzeResult: &analyzer.Result{Module: "example.com/mod", Changes: &analyzer.Diff{}}}, nil
+	}
+
+	cfg := config{
+		projectPath: ".",
+		upgrade:     "example.com/mod@v1.0.0",
+		jsonOutput:  true,
+		htmlOutput:  true,
+	}
+
+	if err := run(cfg); err == nil || !strings.Contains(err.Error(), "cannot use -json and -html together") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
 func TestRun_ParseUpgradeError(t *testing.T) {
 	restore := stubGlobals()
 	defer restore()
@@ -344,6 +411,9 @@ func TestParseFlags(t *testing.T) {
 	if cfg.verbose {
 		t.Errorf("Expected verbose false, got true")
 	}
+	if cfg.htmlOutput {
+		t.Errorf("Expected htmlOutput false, got true")
+	}
 }
 
 func TestConfigStruct(t *testing.T) {
@@ -352,6 +422,7 @@ func TestConfigStruct(t *testing.T) {
 		projectPath: "/test/path",
 		upgrade:     "github.com/example/module@v1.0.0",
 		jsonOutput:  true,
+		htmlOutput:  true,
 		strict:      true,
 		unused:      true,
 		verbose:     true,
@@ -366,6 +437,9 @@ func TestConfigStruct(t *testing.T) {
 	}
 	if !cfg.jsonOutput {
 		t.Errorf("Expected jsonOutput true, got false")
+	}
+	if !cfg.htmlOutput {
+		t.Errorf("Expected htmlOutput true, got false")
 	}
 	if !cfg.strict {
 		t.Errorf("Expected strict true, got false")
@@ -403,6 +477,7 @@ func stubGlobals() func() {
 	oldParseUpgrade := parseUpgradeFn
 	oldNewAnalyzer := newAnalyzerFn
 	oldFormatJSON := formatJSONFn
+	oldFormatHTML := formatHTMLFn
 	oldFormatText := formatTextFn
 	oldExit := exitFunc
 	oldStdout := stdoutWriter
@@ -414,6 +489,7 @@ func stubGlobals() func() {
 		parseUpgradeFn = oldParseUpgrade
 		newAnalyzerFn = oldNewAnalyzer
 		formatJSONFn = oldFormatJSON
+		formatHTMLFn = oldFormatHTML
 		formatTextFn = oldFormatText
 		exitFunc = oldExit
 		stdoutWriter = oldStdout

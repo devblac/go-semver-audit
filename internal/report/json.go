@@ -8,15 +8,17 @@ import (
 
 // JSONReport represents the JSON output structure
 type JSONReport struct {
-	Module           string                `json:"module"`
-	OldVersion       string                `json:"old_version"`
-	NewVersion       string                `json:"new_version"`
-	Breaking         bool                  `json:"breaking"`
-	Removed          []RemovedItem         `json:"removed,omitempty"`
-	Changed          []ChangedItem         `json:"changed,omitempty"`
-	InterfaceChanges []InterfaceChangeItem `json:"interface_changes,omitempty"`
-	Added            []AddedItem           `json:"added,omitempty"`
-	UnusedDeps       []string              `json:"unused_dependencies,omitempty"`
+	Module            string                `json:"module"`
+	OldVersion        string                `json:"old_version"`
+	NewVersion        string                `json:"new_version"`
+	Breaking          bool                  `json:"breaking"`
+	BreakingCount     int                   `json:"breaking_count"`
+	AffectedLocations int                   `json:"affected_locations"`
+	Removed           []RemovedItem         `json:"removed,omitempty"`
+	Changed           []ChangedItem         `json:"changed,omitempty"`
+	InterfaceChanges  []InterfaceChangeItem `json:"interface_changes,omitempty"`
+	Added             []AddedItem           `json:"added,omitempty"`
+	UnusedDeps        []string              `json:"unused_dependencies,omitempty"`
 }
 
 // RemovedItem represents a removed symbol in JSON
@@ -57,10 +59,12 @@ type Location struct {
 // FormatJSON generates a JSON report
 func FormatJSON(result *analyzer.Result) (string, error) {
 	report := JSONReport{
-		Module:     result.Module,
-		OldVersion: result.OldVersion,
-		NewVersion: result.NewVersion,
-		Breaking:   result.HasBreakingChanges(),
+		Module:            result.Module,
+		OldVersion:        result.OldVersion,
+		NewVersion:        result.NewVersion,
+		Breaking:          result.HasBreakingChanges(),
+		BreakingCount:     len(result.Changes.Removed) + len(result.Changes.Changed) + len(result.Changes.InterfaceChanges),
+		AffectedLocations: countAffectedLocations(result.Changes),
 	}
 
 	// Convert removed symbols

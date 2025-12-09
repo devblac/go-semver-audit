@@ -16,6 +16,7 @@ type config struct {
 	projectPath string
 	upgrade     string
 	jsonOutput  bool
+	htmlOutput  bool
 	strict      bool
 	unused      bool
 	verbose     bool
@@ -33,9 +34,10 @@ var (
 	newAnalyzerFn  = func(projectPath string) (analyzerClient, error) {
 		return analyzer.New(projectPath)
 	}
-	formatJSONFn = report.FormatJSON
-	formatTextFn = report.FormatText
-	exitFunc     = os.Exit
+	formatJSONFn           = report.FormatJSON
+	formatHTMLFn           = report.FormatHTML
+	formatTextFn           = report.FormatText
+	exitFunc               = os.Exit
 	stdoutWriter io.Writer = os.Stdout
 	stderrWriter io.Writer = os.Stderr
 )
@@ -70,6 +72,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.projectPath, "path", ".", "Path to Go project to analyze")
 	flag.StringVar(&cfg.upgrade, "upgrade", "", "Dependency upgrade in format module@version (required)")
 	flag.BoolVar(&cfg.jsonOutput, "json", false, "Output results as JSON")
+	flag.BoolVar(&cfg.htmlOutput, "html", false, "Output results as HTML")
 	flag.BoolVar(&cfg.strict, "strict", false, "Exit non-zero on warnings (not just errors)")
 	flag.BoolVar(&cfg.unused, "unused", false, "Report unused dependencies after upgrade")
 	flag.BoolVar(&cfg.verbose, "v", false, "Verbose output")
@@ -127,9 +130,16 @@ func run(cfg config) error {
 
 	// Generate report
 	var output string
-	if cfg.jsonOutput {
+	if cfg.jsonOutput && cfg.htmlOutput {
+		return fmt.Errorf("cannot use -json and -html together")
+	}
+
+	switch {
+	case cfg.jsonOutput:
 		output, err = formatJSONFn(result)
-	} else {
+	case cfg.htmlOutput:
+		output, err = formatHTMLFn(result)
+	default:
 		output, err = formatTextFn(result, cfg.verbose)
 	}
 	if err != nil {

@@ -17,11 +17,25 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 
 	// Check if there are any breaking changes
 	hasBreaking := result.HasBreakingChanges()
+	breakingCount := len(result.Changes.Removed) + len(result.Changes.Changed) + len(result.Changes.InterfaceChanges)
+	usageCount := countAffectedLocations(result.Changes)
 
 	if !hasBreaking {
 		b.WriteString("✓ No breaking changes detected.\n\n")
 	} else {
 		b.WriteString("⚠️  BREAKING CHANGES DETECTED\n\n")
+	}
+
+	if hasBreaking {
+		b.WriteString(fmt.Sprintf("Summary: %d breaking change(s) affecting %d location(s).\n\n", breakingCount, usageCount))
+
+		if fixes := summarizeFixes(result.Changes, 3); len(fixes) > 0 {
+			b.WriteString("What to fix next:\n")
+			for _, fix := range fixes {
+				b.WriteString(fmt.Sprintf("  - %s\n", fix))
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	changes := result.Changes
@@ -104,13 +118,43 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 
 	// Summary
 	if hasBreaking {
-		breakingCount := len(changes.Removed) + len(changes.Changed) + len(changes.InterfaceChanges)
-		usageCount := countAffectedLocations(changes)
 		b.WriteString(fmt.Sprintf("Summary: %d breaking change(s) affecting %d location(s) in your code.\n",
 			breakingCount, usageCount))
 	}
 
 	return b.String(), nil
+}
+
+// summarizeFixes returns a short list of items to address first.
+func summarizeFixes(changes *analyzer.Diff, max int) []string {
+	var fixes []string
+
+	for _, removed := range changes.Removed {
+		if len(removed.UsedIn) == 0 {
+			continue
+		}
+		fixes = append(fixes, fmt.Sprintf("Remove/replace %s (%s) at %s", removed.Name, removed.Type, formatLocations(removed.UsedIn, 1)))
+	}
+
+	for _, changed := range changes.Changed {
+		if len(changed.UsedIn) == 0 {
+			continue
+		}
+		fixes = append(fixes, fmt.Sprintf("Update call to %s at %s", changed.Name, formatLocations(changed.UsedIn, 1)))
+	}
+
+	for _, iface := range changes.InterfaceChanges {
+		if len(iface.UsedIn) == 0 {
+			continue
+		}
+		action := "Update implementations"
+		fixes = append(fixes, fmt.Sprintf("%s of %s at %s", action, iface.Name, formatLocations(iface.UsedIn, 1)))
+	}
+
+	if len(fixes) > max {
+		return fixes[:max]
+	}
+	return fixes
 }
 
 // formatLocations formats a list of locations for display
