@@ -1,11 +1,13 @@
 package analyzer
 
 import (
+	"errors"
 	"go/ast"
 	"go/token"
 	"go/types"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -267,6 +269,70 @@ func TestAnalyzeWithMockLoader(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFailsWhenProjectCannotLoad(t *testing.T) {
+	restoreLoad := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return nil, errors.New("load failure")
+	})
+	defer restoreLoad()
+	restorePrint := mockPackagesPrintErrors(func(pkgs []*packages.Package) int { return 0 })
+	defer restorePrint()
+
+	a := &Analyzer{projectPath: "."}
+	_, err := a.Analyze(&Upgrade{Module: "example.com/lib", NewVersion: "v1.0.0"})
+	if err == nil || !strings.Contains(err.Error(), "failed to load project") {
+		t.Fatalf("Analyze() expected load project error, got %v", err)
+	}
+}
+
+func TestAnalyzeFailsWhenModuleVersionMissing(t *testing.T) {
+	restoreLoad := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return []*packages.Package{
+			{
+				PkgPath: "example.com/app",
+				Module:  &packages.Module{Path: "example.com/other", Version: "v0.1.0"},
+				Imports: map[string]*packages.Package{},
+			},
+		}, nil
+	})
+	defer restoreLoad()
+	restorePrint := mockPackagesPrintErrors(func(pkgs []*packages.Package) int { return 0 })
+	defer restorePrint()
+
+	a := &Analyzer{projectPath: "."}
+	_, err := a.Analyze(&Upgrade{Module: "example.com/missing", NewVersion: "v2.0.0"})
+	if err == nil || !strings.Contains(err.Error(), "module example.com/missing not found") {
+		t.Fatalf("Analyze() expected missing module error, got %v", err)
+	}
+}
+
+func TestLoadProjectFailsOnPackageErrors(t *testing.T) {
+	restoreLoad := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return []*packages.Package{{PkgPath: "example.com/app"}}, nil
+	})
+	defer restoreLoad()
+	restorePrint := mockPackagesPrintErrors(func(pkgs []*packages.Package) int { return 1 })
+	defer restorePrint()
+
+	a := &Analyzer{projectPath: "."}
+	if err := a.loadProject(); err == nil {
+		t.Fatalf("loadProject() expected error due to package errors")
+	}
+}
+
+func TestFindUnusedDependenciesLoadProjectError(t *testing.T) {
+	restoreLoad := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		return nil, errors.New("load failure")
+	})
+	defer restoreLoad()
+	restorePrint := mockPackagesPrintErrors(func(pkgs []*packages.Package) int { return 0 })
+	defer restorePrint()
+
+	a := &Analyzer{projectPath: ".", pkgs: nil}
+	if _, err := a.FindUnusedDependencies(); err == nil {
+		t.Fatalf("FindUnusedDependencies() expected error when loadProject fails")
+	}
+}
+
 // --- Helpers ---
 
 func containsAll(have, want []string) bool {
@@ -287,6 +353,14 @@ func mockPackagesLoad(fn func(cfg *packages.Config, patterns ...string) ([]*pack
 	packagesLoad = fn
 	return func() {
 		packagesLoad = origLoad
+	}
+}
+
+func mockPackagesPrintErrors(fn func(pkgs []*packages.Package) int) func() {
+	origPrint := packagesPrintErrors
+	packagesPrintErrors = fn
+	return func() {
+		packagesPrintErrors = origPrint
 	}
 }
 

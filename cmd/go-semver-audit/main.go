@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/devblac/go-semver-audit/internal/analyzer"
@@ -21,24 +22,45 @@ type config struct {
 	showVersion bool
 }
 
+// Allow dependency injection for testing.
+type analyzerClient interface {
+	Analyze(*analyzer.Upgrade) (*analyzer.Result, error)
+	FindUnusedDependencies() ([]string, error)
+}
+
+var (
+	parseUpgradeFn = analyzer.ParseUpgrade
+	newAnalyzerFn  = func(projectPath string) (analyzerClient, error) {
+		return analyzer.New(projectPath)
+	}
+	formatJSONFn = report.FormatJSON
+	formatTextFn = report.FormatText
+	exitFunc     = os.Exit
+	stdoutWriter io.Writer = os.Stdout
+	stderrWriter io.Writer = os.Stderr
+)
+
 func main() {
 	cfg := parseFlags()
 
 	if cfg.showVersion {
-		fmt.Printf("go-semver-audit version %s\n", version)
-		os.Exit(0)
+		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", version)
+		exitFunc(0)
+		return
 	}
 
 	if cfg.upgrade == "" {
-		fmt.Fprintln(os.Stderr, "Error: -upgrade flag is required")
-		fmt.Fprintln(os.Stderr, "Usage: go-semver-audit -upgrade module@version [options]")
+		fmt.Fprintln(stderrWriter, "Error: -upgrade flag is required")
+		fmt.Fprintln(stderrWriter, "Usage: go-semver-audit -upgrade module@version [options]")
 		flag.Usage()
-		os.Exit(1)
+		exitFunc(1)
+		return
 	}
 
 	if err := run(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderrWriter, "Error: %v\n", err)
+		exitFunc(1)
+		return
 	}
 }
 
@@ -54,13 +76,13 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.showVersion, "version", false, "Show version information")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: go-semver-audit [options]\n\n")
-		fmt.Fprintf(os.Stderr, "Analyze breaking changes in Go dependency upgrades.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
+		fmt.Fprintf(stderrWriter, "Usage: go-semver-audit [options]\n\n")
+		fmt.Fprintf(stderrWriter, "Analyze breaking changes in Go dependency upgrades.\n\n")
+		fmt.Fprintf(stderrWriter, "Options:\n")
 		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExample:\n")
-		fmt.Fprintf(os.Stderr, "  go-semver-audit -upgrade github.com/pkg/errors@v0.9.1\n")
-		fmt.Fprintf(os.Stderr, "  go-semver-audit -path ./myproject -upgrade github.com/gin-gonic/gin@v1.9.0 -json\n")
+		fmt.Fprintf(stderrWriter, "\nExample:\n")
+		fmt.Fprintf(stderrWriter, "  go-semver-audit -upgrade github.com/pkg/errors@v0.9.1\n")
+		fmt.Fprintf(stderrWriter, "  go-semver-audit -path ./myproject -upgrade github.com/gin-gonic/gin@v1.9.0 -json\n")
 	}
 
 	flag.Parse()
@@ -70,19 +92,19 @@ func parseFlags() config {
 
 func run(cfg config) error {
 	// Parse the upgrade specification
-	moduleUpgrade, err := analyzer.ParseUpgrade(cfg.upgrade)
+	moduleUpgrade, err := parseUpgradeFn(cfg.upgrade)
 	if err != nil {
 		return fmt.Errorf("invalid upgrade specification: %w", err)
 	}
 
 	if cfg.verbose {
-		fmt.Fprintf(os.Stderr, "Analyzing project at: %s\n", cfg.projectPath)
-		fmt.Fprintf(os.Stderr, "Upgrade: %s %s -> %s\n",
+		fmt.Fprintf(stderrWriter, "Analyzing project at: %s\n", cfg.projectPath)
+		fmt.Fprintf(stderrWriter, "Upgrade: %s %s -> %s\n",
 			moduleUpgrade.Module, moduleUpgrade.OldVersion, moduleUpgrade.NewVersion)
 	}
 
 	// Create analyzer
-	a, err := analyzer.New(cfg.projectPath)
+	a, err := newAnalyzerFn(cfg.projectPath)
 	if err != nil {
 		return fmt.Errorf("failed to initialize analyzer: %w", err)
 	}
@@ -97,7 +119,7 @@ func run(cfg config) error {
 	if cfg.unused {
 		unused, err := a.FindUnusedDependencies()
 		if err != nil && cfg.verbose {
-			fmt.Fprintf(os.Stderr, "Warning: failed to detect unused dependencies: %v\n", err)
+			fmt.Fprintf(stderrWriter, "Warning: failed to detect unused dependencies: %v\n", err)
 		} else {
 			result.UnusedDeps = unused
 		}
@@ -106,20 +128,21 @@ func run(cfg config) error {
 	// Generate report
 	var output string
 	if cfg.jsonOutput {
-		output, err = report.FormatJSON(result)
+		output, err = formatJSONFn(result)
 	} else {
-		output, err = report.FormatText(result, cfg.verbose)
+		output, err = formatTextFn(result, cfg.verbose)
 	}
 	if err != nil {
 		return fmt.Errorf("failed to generate report: %w", err)
 	}
 
-	fmt.Print(output)
+	fmt.Fprint(stdoutWriter, output)
 
 	// Determine exit code
 	exitCode := determineExitCode(result, cfg.strict)
 	if exitCode != 0 {
-		os.Exit(exitCode)
+		exitFunc(exitCode)
+		return nil
 	}
 
 	return nil

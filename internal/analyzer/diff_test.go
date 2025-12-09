@@ -157,6 +157,86 @@ func TestDiffAPIs(t *testing.T) {
 				interfaceCount int
 			}{0, 0, 0, 1},
 		},
+		{
+			name: "type removed and used",
+			oldAPI: &API{
+				Types: map[string]*Type{
+					"Thing": {Name: "Thing", Kind: "struct"},
+				},
+			},
+			newAPI: &API{
+				Types: map[string]*Type{},
+			},
+			usage: &Usage{
+				Symbols: map[string][]Location{
+					"Thing": {{File: "main.go", Line: 20}},
+				},
+			},
+			want: struct {
+				removedCount   int
+				addedCount     int
+				changedCount   int
+				interfaceCount int
+			}{1, 0, 0, 0},
+		},
+		{
+			name: "type added",
+			oldAPI: &API{
+				Types: map[string]*Type{},
+			},
+			newAPI: &API{
+				Types: map[string]*Type{
+					"NewType": {Name: "NewType", Kind: "struct"},
+				},
+			},
+			usage: &Usage{Symbols: map[string][]Location{}},
+			want: struct {
+				removedCount   int
+				addedCount     int
+				changedCount   int
+				interfaceCount int
+			}{0, 1, 0, 0},
+		},
+		{
+			name: "interface removed when used",
+			oldAPI: &API{
+				Interfaces: map[string]*Interface{
+					"Reader": {Name: "Reader", Methods: []string{"Read() error"}},
+				},
+			},
+			newAPI: &API{
+				Interfaces: map[string]*Interface{},
+			},
+			usage: &Usage{
+				Symbols: map[string][]Location{
+					"Reader": {{File: "main.go", Line: 30}},
+				},
+			},
+			want: struct {
+				removedCount   int
+				addedCount     int
+				changedCount   int
+				interfaceCount int
+			}{1, 0, 0, 0},
+		},
+		{
+			name: "interface added",
+			oldAPI: &API{
+				Interfaces: map[string]*Interface{},
+			},
+			newAPI: &API{
+				Interfaces: map[string]*Interface{
+					"Writer": {Name: "Writer", Methods: []string{"Write() error"}},
+				},
+			},
+			usage: &Usage{Symbols: map[string][]Location{}},
+			want: struct {
+				removedCount   int
+				addedCount     int
+				changedCount   int
+				interfaceCount int
+			}{0, 1, 0, 0},
+		},
 	}
 
 	for _, tt := range tests {

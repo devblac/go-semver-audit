@@ -94,6 +94,13 @@ func TestResultHasBreakingChanges(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "nil changes",
+			result: &Result{
+				Changes: nil,
+			},
+			want: false,
+		},
+		{
 			name: "only additions",
 			result: &Result{
 				Changes: &Diff{
@@ -150,6 +157,16 @@ func TestResultHasWarnings(t *testing.T) {
 			name: "no warnings",
 			result: &Result{
 				Changes: &Diff{},
+			},
+			want: false,
+		},
+		{
+			name: "nil changes allowed",
+			result: &Result{
+				Changes: nil,
+				UnusedDeps: []string{
+					"github.com/unused/dep",
+				},
 			},
 			want: false,
 		},
