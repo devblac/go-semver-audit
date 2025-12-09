@@ -49,6 +49,11 @@ This document summarizes the continuous integration and testing infrastructure a
 
 ## CI Pipeline Overview
 
+### Release workflow (tags)
+- Trigger: push a tag `v*`
+- Action: GoReleaser builds cross-platform binaries and publishes a GitHub Release
+- Local dry run: `goreleaser release --skip=publish --clean`
+
 ### Quick guardrail (copy/paste)
 
 ```yaml
