@@ -4,7 +4,7 @@ Complete installation instructions for `go-semver-audit`.
 
 ## Prerequisites
 
-- **Go 1.21 or later** - [Download Go](https://go.dev/dl/)
+- **Go 1.24 or later** - [Download Go](https://go.dev/dl/)
 - **Git** - For cloning the repository
 - **Make** (optional) - For convenient build commands
 
@@ -91,8 +91,8 @@ go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest
 
 ```bash
 # Install Go if not already installed
-wget https://go.dev/dl/go1.21.0.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.21.0.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.24.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.24.0.linux-amd64.tar.gz
 export PATH=$PATH:/usr/local/go/bin
 
 # Add Go bin to PATH permanently
@@ -187,7 +187,7 @@ If you prefer to use Docker:
 
 ```dockerfile
 # Create a Dockerfile
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go build -o go-semver-audit ./cmd/go-semver-audit
@@ -222,7 +222,7 @@ chmod +x $(which go-semver-audit)
 
 ### Build Errors
 
-- Ensure Go version is 1.21 or later: `go version`
+- Ensure Go version is 1.24 or later: `go version`
 - Clean and rebuild: `go clean -cache && make build`
 - Check for network issues downloading dependencies
 

@@ -82,7 +82,7 @@ The project uses GitHub Actions for CI. The workflow (`.github/workflows/ci.yml`
 The CI pipeline includes:
 
 #### Test Job
-- **Matrix**: Tests across multiple OS (Ubuntu, Windows, macOS) and Go versions (1.21, 1.22)
+- **Matrix**: Tests across multiple OS (Ubuntu, Windows, macOS) and Go versions (1.24, 1.27)
 - **Steps**:
   1. Checkout code
   2. Set up Go
@@ -90,7 +90,7 @@ The CI pipeline includes:
   4. Verify dependencies
   5. Run tests with race detector and coverage
   6. Generate coverage reports
-  7. Upload coverage to Codecov (Ubuntu/Go 1.22 only)
+  7. Upload coverage to Codecov (Ubuntu/Go 1.27 only)
 
 #### Lint Job
 - Runs `go vet` for static analysis
@@ -345,5 +345,6 @@ When contributing:
 5. Follow the existing test patterns and style
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for more details.
+
 
 

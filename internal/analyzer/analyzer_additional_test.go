@@ -178,15 +178,32 @@ func TestFindUsage(t *testing.T) {
 }
 
 func TestLoadModuleAPI(t *testing.T) {
+	moduleDir := t.TempDir()
+	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
+		return &moduleInfo{Path: module, Version: "v1.0.0", Dir: moduleDir}, nil
+	})
+	defer restoreDownload()
+
+	var gotPatterns []string
 	restore := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		if cfg.Dir != moduleDir {
+			t.Errorf("packages.Load Dir = %s, want %s", cfg.Dir, moduleDir)
+		}
+		gotPatterns = patterns
 		return []*packages.Package{buildAPIPackage("example.com/lib")}, nil
 	})
 	defer restore()
 
 	a := &Analyzer{projectPath: "."}
-	api, err := a.loadModuleAPI("example.com/lib", "v1.0.0")
+	api, err := a.loadModuleAPI("example.com/lib", "latest", []string{"example.com/lib"})
 	if err != nil {
 		t.Fatalf("loadModuleAPI() error = %v", err)
+	}
+	if !reflect.DeepEqual(gotPatterns, []string{"."}) {
+		t.Fatalf("loadModuleAPI() patterns = %v, want [.]", gotPatterns)
+	}
+	if api.Version != "v1.0.0" {
+		t.Fatalf("loadModuleAPI() Version = %s, want resolved v1.0.0", api.Version)
 	}
 
 	if api.Funcs["Func"] == nil {
@@ -235,13 +252,25 @@ func TestAnalyzeWithMockLoader(t *testing.T) {
 		},
 	})
 
+	oldDir, newDir := t.TempDir(), t.TempDir()
+	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
+		switch version {
+		case "v1.0.0":
+			return &moduleInfo{Path: module, Version: version, Dir: oldDir}, nil
+		case "v2.0.0":
+			return &moduleInfo{Path: module, Version: version, Dir: newDir}, nil
+		}
+		return nil, errors.New("unexpected version " + version)
+	})
+	defer restoreDownload()
+
 	restore := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
-		switch patterns[0] {
-		case "./...":
+		switch {
+		case patterns[0] == "./...":
 			return []*packages.Package{projectPkg}, nil
-		case module + "@v1.0.0":
+		case cfg.Dir == oldDir:
 			return []*packages.Package{oldAPIPkg}, nil
-		case module + "@v2.0.0":
+		case cfg.Dir == newDir:
 			return []*packages.Package{newAPIPkg}, nil
 		default:
 			return nil, nil
@@ -353,6 +382,71 @@ func mockPackagesLoad(fn func(cfg *packages.Config, patterns ...string) ([]*pack
 	packagesLoad = fn
 	return func() {
 		packagesLoad = origLoad
+	}
+}
+
+func mockGoModDownload(fn func(module, version string) (*moduleInfo, error)) func() {
+	orig := goModDownload
+	goModDownload = func(module, version, _ string) (*moduleInfo, error) {
+		return fn(module, version)
+	}
+	return func() {
+		goModDownload = orig
+	}
+}
+
+func TestLoadModuleAPIFailsOnPackageErrors(t *testing.T) {
+	moduleDir := t.TempDir()
+	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
+		return &moduleInfo{Path: module, Version: version, Dir: moduleDir}, nil
+	})
+	defer restoreDownload()
+	restore := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		pkg := buildAPIPackage("example.com/lib")
+		pkg.Errors = []packages.Error{{Msg: "undefined: Foo"}}
+		return []*packages.Package{pkg}, nil
+	})
+	defer restore()
+
+	a := &Analyzer{projectPath: "."}
+	_, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib"})
+	if err == nil || !strings.Contains(err.Error(), "undefined: Foo") {
+		t.Fatalf("loadModuleAPI() expected package error, got %v", err)
+	}
+}
+
+func TestLoadModuleAPISkipsMissingPackages(t *testing.T) {
+	moduleDir := t.TempDir()
+	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
+		return &moduleInfo{Path: module, Version: version, Dir: moduleDir}, nil
+	})
+	defer restoreDownload()
+	restore := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
+		t.Fatalf("packages.Load should not be called, got patterns %v", patterns)
+		return nil, nil
+	})
+	defer restore()
+
+	a := &Analyzer{projectPath: "."}
+	api, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib/gone"})
+	if err != nil {
+		t.Fatalf("loadModuleAPI() error = %v", err)
+	}
+	if len(api.Funcs)+len(api.Types)+len(api.Interfaces) != 0 {
+		t.Fatalf("loadModuleAPI() expected empty API for removed package")
+	}
+}
+
+func TestLoadModuleAPIDownloadError(t *testing.T) {
+	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
+		return nil, errors.New("unknown revision v9.9.9")
+	})
+	defer restoreDownload()
+
+	a := &Analyzer{projectPath: "."}
+	_, err := a.loadModuleAPI("example.com/lib", "v9.9.9", []string{"example.com/lib"})
+	if err == nil || !strings.Contains(err.Error(), "unknown revision") {
+		t.Fatalf("loadModuleAPI() expected download error, got %v", err)
 	}
 }
 
