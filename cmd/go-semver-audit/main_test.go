@@ -40,7 +40,7 @@ func TestDetermineExitCode(t *testing.T) {
 			want:   1,
 		},
 		{
-			name: "warnings non-strict",
+			name: "additions non-strict",
 			result: &analyzer.Result{
 				Changes: &analyzer.Diff{
 					Added: []analyzer.AddedSymbol{
@@ -52,7 +52,9 @@ func TestDetermineExitCode(t *testing.T) {
 			want:   0,
 		},
 		{
-			name: "warnings strict",
+			// Added symbols are informational: they must not trip -strict,
+			// otherwise the flag fails on every upgrade
+			name: "additions strict",
 			result: &analyzer.Result{
 				Changes: &analyzer.Diff{
 					Added: []analyzer.AddedSymbol{
@@ -61,7 +63,7 @@ func TestDetermineExitCode(t *testing.T) {
 				},
 			},
 			strict: true,
-			want:   1,
+			want:   0,
 		},
 		{
 			name: "unused dependencies non-strict",
@@ -136,12 +138,45 @@ func TestMain_MissingUpgradeExitsWithUsage(t *testing.T) {
 
 	main()
 
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode)
+	if exitCode != exitError {
+		t.Fatalf("expected exit code %d, got %d", exitError, exitCode)
 	}
 
 	if !strings.Contains(stderr.String(), "-upgrade flag is required") {
 		t.Fatalf("expected upgrade required message, got %q", stderr.String())
+	}
+}
+
+func TestMain_AnalysisFailureExitsWithErrorCode(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	var exitCode int
+	exitFunc = func(code int) { exitCode = code }
+
+	stdoutWriter = &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	stderrWriter = stderr
+
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{Module: "example.com/mod", NewVersion: "v1.0.0"}, nil
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) {
+		return &stubAnalyzer{analyzeErr: errors.New("module not found")}, nil
+	}
+
+	os.Args = []string{"go-semver-audit", "-upgrade", "example.com/mod@v1.0.0"}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+
+	main()
+
+	// A failed analysis must be distinguishable from "breaking changes found"
+	if exitCode != exitError {
+		t.Fatalf("expected exit code %d, got %d", exitError, exitCode)
+	}
+	if !strings.Contains(stderr.String(), "module not found") {
+		t.Fatalf("expected analysis error on stderr, got %q", stderr.String())
 	}
 }
 
@@ -223,8 +258,9 @@ func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
 
 	fakeAnalyzer := &stubAnalyzer{
 		analyzeResult: &analyzer.Result{
-			Module:  "github.com/example/mod",
-			Changes: &analyzer.Diff{Added: []analyzer.AddedSymbol{{Name: "New", Type: "func"}}},
+			Module:     "github.com/example/mod",
+			Changes:    &analyzer.Diff{Added: []analyzer.AddedSymbol{{Name: "New", Type: "func"}}},
+			UnusedDeps: []string{"github.com/unused/dep"},
 		},
 	}
 	newAnalyzerFn = func(path string) (analyzerClient, error) {
@@ -251,8 +287,8 @@ func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
 		t.Fatalf("run returned error: %v", err)
 	}
 
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode)
+	if exitCode != exitBreaking {
+		t.Fatalf("expected exit code %d, got %d", exitBreaking, exitCode)
 	}
 	if !strings.Contains(stdout.String(), `"report":true`) {
 		t.Fatalf("expected JSON output, got %q", stdout.String())

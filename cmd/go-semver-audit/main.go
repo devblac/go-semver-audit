@@ -12,6 +12,14 @@ import (
 
 const version = "0.1.0"
 
+// Exit codes. Breaking changes and tool failures are reported separately so
+// CI can tell "the upgrade is risky" apart from "the audit did not run".
+const (
+	exitOK       = 0 // analysis completed, nothing to report
+	exitBreaking = 1 // breaking changes found (or warnings, with -strict)
+	exitError    = 2 // the analysis could not be completed
+)
+
 type config struct {
 	projectPath string
 	upgrade     string
@@ -47,7 +55,7 @@ func main() {
 
 	if cfg.showVersion {
 		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", version)
-		exitFunc(0)
+		exitFunc(exitOK)
 		return
 	}
 
@@ -55,13 +63,13 @@ func main() {
 		fmt.Fprintln(stderrWriter, "Error: -upgrade flag is required")
 		fmt.Fprintln(stderrWriter, "Usage: go-semver-audit -upgrade module@version [options]")
 		flag.Usage()
-		exitFunc(1)
+		exitFunc(exitError)
 		return
 	}
 
 	if err := run(cfg); err != nil {
 		fmt.Fprintf(stderrWriter, "Error: %v\n", err)
-		exitFunc(1)
+		exitFunc(exitError)
 		return
 	}
 }
@@ -86,6 +94,10 @@ func parseFlags() config {
 		fmt.Fprintf(stderrWriter, "\nExample:\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -upgrade github.com/pkg/errors@v0.9.1\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -path ./myproject -upgrade github.com/gin-gonic/gin@v1.9.0 -json\n")
+		fmt.Fprintf(stderrWriter, "\nExit codes:\n")
+		fmt.Fprintf(stderrWriter, "  %d  no breaking changes\n", exitOK)
+		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected (or warnings, with -strict)\n", exitBreaking)
+		fmt.Fprintf(stderrWriter, "  %d  the analysis could not be completed\n", exitError)
 	}
 
 	flag.Parse()
@@ -161,13 +173,13 @@ func run(cfg config) error {
 func determineExitCode(result *analyzer.Result, strict bool) int {
 	// Exit non-zero if there are breaking changes
 	if result.HasBreakingChanges() {
-		return 1
+		return exitBreaking
 	}
 
 	// In strict mode, exit non-zero if there are any warnings
 	if strict && result.HasWarnings() {
-		return 1
+		return exitBreaking
 	}
 
-	return 0
+	return exitOK
 }

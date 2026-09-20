@@ -1,5 +1,7 @@
 package analyzer
 
+import "sort"
+
 // diffAPIs compares two API surfaces and returns the differences
 func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	diff := &Diff{
@@ -103,7 +105,37 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 		}
 	}
 
+	// The API surfaces are maps, so everything above is collected in random
+	// order. Sort before returning to keep reports stable across runs.
+	sortDiff(diff)
+
 	return diff
+}
+
+// sortDiff orders every collection in a Diff so that repeated runs over the
+// same versions produce byte-identical reports.
+func sortDiff(diff *Diff) {
+	sort.Slice(diff.Removed, func(i, j int) bool {
+		if diff.Removed[i].Name != diff.Removed[j].Name {
+			return diff.Removed[i].Name < diff.Removed[j].Name
+		}
+		return diff.Removed[i].Type < diff.Removed[j].Type
+	})
+
+	sort.Slice(diff.Added, func(i, j int) bool {
+		if diff.Added[i].Name != diff.Added[j].Name {
+			return diff.Added[i].Name < diff.Added[j].Name
+		}
+		return diff.Added[i].Type < diff.Added[j].Type
+	})
+
+	sort.Slice(diff.Changed, func(i, j int) bool {
+		return diff.Changed[i].Name < diff.Changed[j].Name
+	})
+
+	sort.Slice(diff.InterfaceChanges, func(i, j int) bool {
+		return diff.InterfaceChanges[i].Name < diff.InterfaceChanges[j].Name
+	})
 }
 
 // diffInterfaces compares two interface definitions
@@ -133,6 +165,9 @@ func diffInterfaces(name string, oldIface, newIface *Interface, usage *Usage) *I
 			added = append(added, method)
 		}
 	}
+
+	sort.Strings(added)
+	sort.Strings(removed)
 
 	// If there are changes and the interface is used, report it
 	if (len(added) > 0 || len(removed) > 0) && len(usage.Symbols[name]) > 0 {

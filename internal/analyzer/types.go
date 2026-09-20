@@ -28,12 +28,14 @@ func (r *Result) HasBreakingChanges() bool {
 		len(r.Changes.InterfaceChanges) > 0
 }
 
-// HasWarnings returns true if the result contains warnings
+// HasWarnings returns true if the result contains non-breaking findings that
+// are worth failing on in strict mode.
+//
+// Added symbols are deliberately excluded: they are informational, and nearly
+// every upgrade adds something, which made -strict fail on every upgrade and
+// therefore useless as a CI signal.
 func (r *Result) HasWarnings() bool {
-	if r.Changes == nil {
-		return false
-	}
-	return len(r.Changes.Added) > 0 || len(r.UnusedDeps) > 0
+	return len(r.UnusedDeps) > 0
 }
 
 // API represents the exported API surface of a module

@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -342,5 +343,71 @@ func TestDiffInterfaces(t *testing.T) {
 				t.Errorf("diffInterfaces() returned nil = %v, wantNil %v", got == nil, tt.wantNil)
 			}
 		})
+	}
+}
+
+func TestDiffAPIsIsDeterministic(t *testing.T) {
+	// Enough symbols that random map iteration would almost certainly produce
+	// a different ordering on at least one of the runs below.
+	oldAPI := &API{
+		Funcs: map[string]*Function{
+			"Alpha":   {Name: "Alpha", Signature: "func() error"},
+			"Bravo":   {Name: "Bravo", Signature: "func(int) error"},
+			"Charlie": {Name: "Charlie", Signature: "func() error"},
+			"Delta":   {Name: "Delta", Signature: "func() error"},
+			"Echo":    {Name: "Echo", Signature: "func() error"},
+		},
+		Types: map[string]*Type{
+			"Config": {Name: "Config", Kind: "struct{}"},
+			"Option": {Name: "Option", Kind: "func()"},
+		},
+		Interfaces: map[string]*Interface{
+			"Handler": {Name: "Handler", Methods: []string{"Handle() error", "Close() error", "Flush() error"}},
+			"Writer":  {Name: "Writer", Methods: []string{"Write() error"}},
+		},
+	}
+	newAPI := &API{
+		Funcs: map[string]*Function{
+			// Alpha and Bravo change signature, Charlie is removed
+			"Alpha":    {Name: "Alpha", Signature: "func(string) error"},
+			"Bravo":    {Name: "Bravo", Signature: "func(int, bool) error"},
+			"Delta":    {Name: "Delta", Signature: "func() error"},
+			"Echo":     {Name: "Echo", Signature: "func() error"},
+			"Foxtrot":  {Name: "Foxtrot", Signature: "func() error"},
+			"Golf":     {Name: "Golf", Signature: "func() error"},
+			"Hotel":    {Name: "Hotel", Signature: "func() error"},
+			"November": {Name: "November", Signature: "func() error"},
+		},
+		Types: map[string]*Type{
+			"Option":   {Name: "Option", Kind: "func()"},
+			"Metadata": {Name: "Metadata", Kind: "struct{}"},
+		},
+		Interfaces: map[string]*Interface{
+			"Handler": {Name: "Handler", Methods: []string{"HandleWithContext() error", "Drain() error"}},
+			"Writer":  {Name: "Writer", Methods: []string{"Write() error"}},
+			"Reader":  {Name: "Reader", Methods: []string{"Read() error"}},
+		},
+	}
+	usage := &Usage{
+		Symbols: map[string][]Location{
+			"Alpha":   {{File: "main.go", Line: 10}},
+			"Bravo":   {{File: "main.go", Line: 20}},
+			"Charlie": {{File: "util.go", Line: 5}},
+			"Config":  {{File: "config.go", Line: 7}},
+			"Handler": {{File: "handler.go", Line: 3}},
+		},
+	}
+
+	first := diffAPIs(oldAPI, newAPI, usage)
+	for i := 0; i < 20; i++ {
+		got := diffAPIs(oldAPI, newAPI, usage)
+		if !reflect.DeepEqual(first, got) {
+			t.Fatalf("diffAPIs() output differs between runs\nrun 1: %+v\nrun %d: %+v", first, i+2, got)
+		}
+	}
+
+	// Sanity check that the fixture actually exercises every collection
+	if len(first.Removed) == 0 || len(first.Added) == 0 || len(first.Changed) == 0 || len(first.InterfaceChanges) == 0 {
+		t.Fatalf("fixture did not produce all change kinds: %+v", first)
 	}
 }

@@ -123,6 +123,7 @@ func (a *Analyzer) FindUnusedDependencies() ([]string, error) {
 			unused = append(unused, dep)
 		}
 	}
+	sort.Strings(unused)
 
 	return unused, nil
 }
@@ -428,6 +429,16 @@ func (a *Analyzer) findUsage(module string) *Usage {
 				})
 			}
 		}
+	}
+
+	// TypesInfo.Uses is a map, so locations arrive in random order
+	for _, locations := range usage.Symbols {
+		sort.Slice(locations, func(i, j int) bool {
+			if locations[i].File != locations[j].File {
+				return locations[i].File < locations[j].File
+			}
+			return locations[i].Line < locations[j].Line
+		})
 	}
 
 	return usage

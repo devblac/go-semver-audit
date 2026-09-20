@@ -12,10 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analysis fails loudly when a dependency package cannot be type-checked instead of diffing an empty API
 - Packages removed in the new version are reported as removed symbols
 - Version queries such as `@latest` are resolved to the concrete version analyzed
+- Reports are now deterministic. Symbols, interface methods, usage locations and unused dependencies were collected from maps and emitted in random order, so repeated runs over the same versions produced different output
+- `-strict` no longer treats added symbols as warnings. Almost every upgrade adds something, so the flag failed on every upgrade and was unusable as a CI signal; it now fails on unused dependencies only
+- Unused dependencies are reported as warnings even when the API diff is empty
 
 ### Changed
 - Minimum Go version raised to 1.24 (was 1.21) to pick up `golang.org/x/tools` v0.39.0, required for the module-loading fix above and needed to type-check dependencies built with newer Go toolchains
 - CI now tests against Go 1.24 and 1.27 instead of 1.21 and 1.22
+- Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes (or warnings with `-strict`), `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`
 
 ### Added
 - Initial implementation of go-semver-audit CLI tool
