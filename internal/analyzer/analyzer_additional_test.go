@@ -7,6 +7,7 @@ import (
 	"go/types"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -164,17 +165,90 @@ func TestFindUsage(t *testing.T) {
 		t.Fatalf("findUsage() missing import entry for %s", module)
 	}
 
-	locations := usage.Symbols["Foo"]
+	locations := usage.Symbols["example.com/lib.Foo"]
 	if len(locations) != 1 {
-		t.Fatalf("findUsage() expected 1 location for Foo, got %d", len(locations))
+		t.Fatalf("findUsage() expected 1 location for example.com/lib.Foo, got %d (symbols: %v)",
+			len(locations), mapKeys(usage.Symbols))
 	}
 	if locations[0].File != "main.go" || locations[0].Line == 0 {
 		t.Fatalf("findUsage() returned unexpected location %+v", locations[0])
 	}
 
-	if _, ok := usage.Symbols["bar"]; ok {
+	if _, ok := usage.Symbols["example.com/lib.bar"]; ok {
 		t.Fatalf("findUsage() should ignore non-exported symbols")
 	}
+}
+
+func TestFindUsageRecordsMethodsAndReceivers(t *testing.T) {
+	const module = "example.com/lib"
+
+	fset := token.NewFileSet()
+	file := fset.AddFile("main.go", -1, 50)
+	ident := ast.NewIdent("Validate")
+	ident.NamePos = file.Pos(5)
+
+	libPkg := types.NewPackage(module, "lib")
+	configName := types.NewTypeName(token.NoPos, libPkg, "Config", nil)
+	config := types.NewNamed(configName, types.NewStruct(nil, nil), nil)
+	recv := types.NewVar(token.NoPos, libPkg, "c", types.NewPointer(config))
+	method := types.NewFunc(token.NoPos, libPkg, "Validate", newSignatureWithRecv(recv, nil, nil))
+
+	pkg := &packages.Package{
+		PkgPath: "example.com/user",
+		Fset:    fset,
+		Imports: map[string]*packages.Package{
+			module: {PkgPath: module, Module: &packages.Module{Path: module}},
+		},
+		TypesInfo: &types.Info{
+			Uses: map[*ast.Ident]types.Object{ident: method},
+		},
+	}
+
+	a := &Analyzer{pkgs: []*packages.Package{pkg}}
+	usage := a.findUsage(module)
+
+	// The method itself must be keyed by receiver, otherwise a changed method
+	// signature can never be matched against the API surface
+	if got := usage.Symbols["example.com/lib.Config.Validate"]; len(got) != 1 {
+		t.Fatalf("findUsage() missing method key, symbols: %v", mapKeys(usage.Symbols))
+	}
+	// Calling a method also counts as using its receiver type
+	if got := usage.Symbols["example.com/lib.Config"]; len(got) != 1 {
+		t.Fatalf("findUsage() missing receiver type key, symbols: %v", mapKeys(usage.Symbols))
+	}
+}
+
+func TestUsageKeysIgnoresStructFieldsAndForeignPackages(t *testing.T) {
+	const module = "example.com/lib"
+	imports := map[string]bool{module: true}
+
+	libPkg := types.NewPackage(module, "lib")
+	otherPkg := types.NewPackage("example.com/other", "other")
+
+	field := types.NewField(token.NoPos, libPkg, "Name", types.Typ[types.String], false)
+	if keys := usageKeys(field, imports); keys != nil {
+		t.Errorf("usageKeys() should ignore struct fields, got %v", keys)
+	}
+
+	foreign := types.NewFunc(token.NoPos, otherPkg, "Foo", newSignature(nil, nil))
+	if keys := usageKeys(foreign, imports); keys != nil {
+		t.Errorf("usageKeys() should ignore symbols outside the module, got %v", keys)
+	}
+
+	pkgVar := types.NewVar(token.NoPos, libPkg, "DefaultConfig", types.Typ[types.String])
+	want := []string{"example.com/lib.DefaultConfig"}
+	if keys := usageKeys(pkgVar, imports); !reflect.DeepEqual(keys, want) {
+		t.Errorf("usageKeys() = %v, want %v", keys, want)
+	}
+}
+
+func mapKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func TestLoadModuleAPI(t *testing.T) {
@@ -206,17 +280,22 @@ func TestLoadModuleAPI(t *testing.T) {
 		t.Fatalf("loadModuleAPI() Version = %s, want resolved v1.0.0", api.Version)
 	}
 
-	if api.Funcs["Func"] == nil {
-		t.Fatalf("loadModuleAPI() missing exported function")
+	if api.Funcs["example.com/lib.Func"] == nil {
+		t.Fatalf("loadModuleAPI() missing exported function, funcs: %v", mapKeys(api.Funcs))
 	}
-	if api.Types["Thing"] == nil {
+	if api.Types["example.com/lib.Thing"] == nil {
 		t.Fatalf("loadModuleAPI() missing exported type")
 	}
-	if api.Interfaces["Handler"] == nil {
+	if api.Interfaces["example.com/lib.Handler"] == nil {
 		t.Fatalf("loadModuleAPI() missing exported interface")
 	}
-	if api.Funcs["Thing.Do"] == nil || !api.Funcs["Thing.Do"].IsMethod {
-		t.Fatalf("loadModuleAPI() missing method binding")
+
+	method := api.Funcs["example.com/lib.Thing.Do"]
+	if method == nil || !method.IsMethod {
+		t.Fatalf("loadModuleAPI() missing method binding, funcs: %v", mapKeys(api.Funcs))
+	}
+	if method.Recv != "Thing" || method.Name != "Do" {
+		t.Fatalf("loadModuleAPI() method Recv/Name = %q/%q, want Thing/Do", method.Recv, method.Name)
 	}
 }
 

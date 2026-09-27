@@ -324,10 +324,11 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 			switch obj := obj.(type) {
 			case *types.Func:
 				sig := obj.Type().(*types.Signature)
-				api.Funcs[obj.Name()] = &Function{
+				api.Funcs[symbolKey(pkg.PkgPath, obj.Name())] = &Function{
 					Name:      obj.Name(),
 					Signature: sig.String(),
 					PkgPath:   pkg.PkgPath,
+					PkgName:   pkg.Name,
 				}
 
 			case *types.TypeName:
@@ -343,29 +344,32 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 					for i := 0; i < iface.NumMethods(); i++ {
 						methods[i] = iface.Method(i).String()
 					}
-					api.Interfaces[obj.Name()] = &Interface{
+					api.Interfaces[symbolKey(pkg.PkgPath, obj.Name())] = &Interface{
 						Name:    obj.Name(),
 						Methods: methods,
 						PkgPath: pkg.PkgPath,
+						PkgName: pkg.Name,
 					}
 				} else {
 					// Regular type
-					api.Types[obj.Name()] = &Type{
+					api.Types[symbolKey(pkg.PkgPath, obj.Name())] = &Type{
 						Name:    obj.Name(),
 						Kind:    named.Underlying().String(),
 						PkgPath: pkg.PkgPath,
+						PkgName: pkg.Name,
 					}
 
 					// Add methods for this type
 					for i := 0; i < named.NumMethods(); i++ {
 						method := named.Method(i)
 						if method.Exported() {
-							key := fmt.Sprintf("%s.%s", obj.Name(), method.Name())
 							sig := method.Type().(*types.Signature)
-							api.Funcs[key] = &Function{
-								Name:      key,
+							api.Funcs[methodSymbolKey(pkg.PkgPath, obj.Name(), method.Name())] = &Function{
+								Name:      method.Name(),
+								Recv:      obj.Name(),
 								Signature: sig.String(),
 								PkgPath:   pkg.PkgPath,
+								PkgName:   pkg.Name,
 								IsMethod:  true,
 							}
 						}
@@ -385,14 +389,17 @@ func (a *Analyzer) findUsage(module string) *Usage {
 		Imports: make(map[string]bool),
 	}
 
+	// Collect every package of the target module that the project imports
+	// before scanning, so the scan does not depend on package ordering
 	for _, pkg := range a.pkgs {
-		// Check if this package imports the target module
 		for _, imp := range pkg.Imports {
 			if imp.Module != nil && imp.Module.Path == module {
 				usage.Imports[imp.PkgPath] = true
 			}
 		}
+	}
 
+	for _, pkg := range a.pkgs {
 		// Scan for symbol usage in the package
 		if pkg.TypesInfo == nil {
 			continue
@@ -403,30 +410,15 @@ func (a *Analyzer) findUsage(module string) *Usage {
 				continue
 			}
 
-			// Check if this symbol belongs to the target module
-			pkgPath := ""
-			switch o := obj.(type) {
-			case *types.Func:
-				if o.Pkg() != nil {
-					pkgPath = o.Pkg().Path()
-				}
-			case *types.TypeName:
-				if o.Pkg() != nil {
-					pkgPath = o.Pkg().Path()
-				}
-			case *types.Var:
-				if o.Pkg() != nil {
-					pkgPath = o.Pkg().Path()
-				}
+			keys := usageKeys(obj, usage.Imports)
+			if len(keys) == 0 {
+				continue
 			}
 
-			if usage.Imports[pkgPath] {
-				symbolName := obj.Name()
-				pos := pkg.Fset.Position(ident.Pos())
-				usage.Symbols[symbolName] = append(usage.Symbols[symbolName], Location{
-					File: pos.Filename,
-					Line: pos.Line,
-				})
+			pos := pkg.Fset.Position(ident.Pos())
+			loc := Location{File: pos.Filename, Line: pos.Line}
+			for _, key := range keys {
+				usage.Symbols[key] = append(usage.Symbols[key], loc)
 			}
 		}
 	}
@@ -442,6 +434,70 @@ func (a *Analyzer) findUsage(module string) *Usage {
 	}
 
 	return usage
+}
+
+// usageKeys returns the symbol keys a used object should be recorded under,
+// restricted to packages of the module being analyzed.
+//
+// Using a method also records usage of its receiver type: code that only ever
+// does cfg := lib.New(); cfg.Validate() never names Config itself, but still
+// breaks if Config is removed.
+func usageKeys(obj types.Object, moduleImports map[string]bool) []string {
+	switch o := obj.(type) {
+	case *types.Func:
+		sig, _ := o.Type().(*types.Signature)
+		if sig == nil || sig.Recv() == nil {
+			return packageLevelKeys(o, moduleImports)
+		}
+
+		recv := receiverNamed(sig.Recv().Type())
+		if recv == nil || recv.Obj().Pkg() == nil {
+			return nil
+		}
+		pkgPath := recv.Obj().Pkg().Path()
+		if !moduleImports[pkgPath] {
+			return nil
+		}
+		recvName := recv.Obj().Name()
+		return []string{
+			methodSymbolKey(pkgPath, recvName, o.Name()),
+			symbolKey(pkgPath, recvName),
+		}
+
+	case *types.TypeName:
+		return packageLevelKeys(o, moduleImports)
+
+	case *types.Var:
+		// Struct fields are not part of the API surface we diff yet, and
+		// recording them under their bare name produces false matches
+		// against package-level symbols
+		if o.IsField() {
+			return nil
+		}
+		return packageLevelKeys(o, moduleImports)
+	}
+
+	return nil
+}
+
+// packageLevelKeys returns the single key for a package-level symbol, or nil if
+// the symbol does not belong to the module being analyzed.
+func packageLevelKeys(obj types.Object, moduleImports map[string]bool) []string {
+	if obj.Pkg() == nil || !moduleImports[obj.Pkg().Path()] {
+		return nil
+	}
+	return []string{symbolKey(obj.Pkg().Path(), obj.Name())}
+}
+
+// receiverNamed unwraps a method receiver type to its named type, looking
+// through pointers, aliases and generic instantiations.
+func receiverNamed(t types.Type) *types.Named {
+	t = types.Unalias(t)
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = types.Unalias(ptr.Elem())
+	}
+	named, _ := t.(*types.Named)
+	return named
 }
 
 // getDirectDependencies retrieves direct dependencies from go.mod

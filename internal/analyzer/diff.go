@@ -11,53 +11,60 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 		InterfaceChanges: []InterfaceChange{},
 	}
 
-	// Check for removed functions
-	for name, oldFunc := range oldAPI.Funcs {
-		if _, exists := newAPI.Funcs[name]; !exists {
-			// Function was removed
-			locations := usage.Symbols[name]
+	// Check for removed functions and methods
+	for key, oldFunc := range oldAPI.Funcs {
+		newFunc, exists := newAPI.Funcs[key]
+		if !exists {
+			// A method that disappeared along with its receiver type is
+			// already covered by the type's own entry; reporting both would
+			// count one break several times over
+			if oldFunc.IsMethod && !typeExists(newAPI, oldFunc.PkgPath, oldFunc.Recv) {
+				continue
+			}
+
+			// Only report if it's actually used
+			locations := usage.Symbols[key]
 			if len(locations) > 0 {
-				// Only report if it's actually used
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   name,
-					Type:   "function",
+					Name:   oldFunc.Display(),
+					Type:   oldFunc.Kind(),
 					UsedIn: locations,
 				})
 			}
-		} else {
-			// Function exists, check if signature changed
-			newFunc := newAPI.Funcs[name]
-			if oldFunc.Signature != newFunc.Signature {
-				locations := usage.Symbols[name]
-				if len(locations) > 0 {
-					diff.Changed = append(diff.Changed, ChangedSignature{
-						Name:         name,
-						OldSignature: oldFunc.Signature,
-						NewSignature: newFunc.Signature,
-						UsedIn:       locations,
-					})
-				}
+			continue
+		}
+
+		// Function exists, check if signature changed
+		if oldFunc.Signature != newFunc.Signature {
+			locations := usage.Symbols[key]
+			if len(locations) > 0 {
+				diff.Changed = append(diff.Changed, ChangedSignature{
+					Name:         oldFunc.Display(),
+					OldSignature: oldFunc.Signature,
+					NewSignature: newFunc.Signature,
+					UsedIn:       locations,
+				})
 			}
 		}
 	}
 
 	// Check for added functions (informational)
-	for name := range newAPI.Funcs {
-		if _, exists := oldAPI.Funcs[name]; !exists {
+	for key, newFunc := range newAPI.Funcs {
+		if _, exists := oldAPI.Funcs[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: name,
-				Type: "function",
+				Name: newFunc.Display(),
+				Type: newFunc.Kind(),
 			})
 		}
 	}
 
 	// Check for removed types
-	for name := range oldAPI.Types {
-		if _, exists := newAPI.Types[name]; !exists {
-			locations := usage.Symbols[name]
+	for key, oldType := range oldAPI.Types {
+		if _, exists := newAPI.Types[key]; !exists {
+			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   name,
+					Name:   oldType.Display(),
 					Type:   "type",
 					UsedIn: locations,
 				})
@@ -66,28 +73,28 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	}
 
 	// Check for added types (informational)
-	for name := range newAPI.Types {
-		if _, exists := oldAPI.Types[name]; !exists {
+	for key, newType := range newAPI.Types {
+		if _, exists := oldAPI.Types[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: name,
+				Name: newType.Display(),
 				Type: "type",
 			})
 		}
 	}
 
 	// Check for interface changes
-	for name, oldIface := range oldAPI.Interfaces {
-		if newIface, exists := newAPI.Interfaces[name]; exists {
-			change := diffInterfaces(name, oldIface, newIface, usage)
+	for key, oldIface := range oldAPI.Interfaces {
+		if newIface, exists := newAPI.Interfaces[key]; exists {
+			change := diffInterfaces(key, oldIface, newIface, usage)
 			if change != nil {
 				diff.InterfaceChanges = append(diff.InterfaceChanges, *change)
 			}
 		} else {
 			// Interface was removed
-			locations := usage.Symbols[name]
+			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   name,
+					Name:   oldIface.Display(),
 					Type:   "interface",
 					UsedIn: locations,
 				})
@@ -96,10 +103,10 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	}
 
 	// Check for added interfaces (informational)
-	for name := range newAPI.Interfaces {
-		if _, exists := oldAPI.Interfaces[name]; !exists {
+	for key, newIface := range newAPI.Interfaces {
+		if _, exists := oldAPI.Interfaces[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: name,
+				Name: newIface.Display(),
 				Type: "interface",
 			})
 		}
@@ -138,8 +145,20 @@ func sortDiff(diff *Diff) {
 	})
 }
 
-// diffInterfaces compares two interface definitions
-func diffInterfaces(name string, oldIface, newIface *Interface, usage *Usage) *InterfaceChange {
+// typeExists reports whether a named type still exists in the given API,
+// either as a plain type or as an interface.
+func typeExists(api *API, pkgPath, name string) bool {
+	key := symbolKey(pkgPath, name)
+	if _, ok := api.Types[key]; ok {
+		return true
+	}
+	_, ok := api.Interfaces[key]
+	return ok
+}
+
+// diffInterfaces compares two interface definitions. key is the symbol key used
+// to look up usage; names in the returned change are report-friendly.
+func diffInterfaces(key string, oldIface, newIface *Interface, usage *Usage) *InterfaceChange {
 	oldMethods := make(map[string]bool)
 	for _, method := range oldIface.Methods {
 		oldMethods[method] = true
@@ -170,12 +189,12 @@ func diffInterfaces(name string, oldIface, newIface *Interface, usage *Usage) *I
 	sort.Strings(removed)
 
 	// If there are changes and the interface is used, report it
-	if (len(added) > 0 || len(removed) > 0) && len(usage.Symbols[name]) > 0 {
+	if (len(added) > 0 || len(removed) > 0) && len(usage.Symbols[key]) > 0 {
 		return &InterfaceChange{
-			Name:           name,
+			Name:           oldIface.Display(),
 			AddedMethods:   added,
 			RemovedMethods: removed,
-			UsedIn:         usage.Symbols[name],
+			UsedIn:         usage.Symbols[key],
 		}
 	}
 

@@ -411,3 +411,59 @@ func TestDiffAPIsIsDeterministic(t *testing.T) {
 		t.Fatalf("fixture did not produce all change kinds: %+v", first)
 	}
 }
+
+func TestDiffAPIsMethodRemoval(t *testing.T) {
+	const pkgPath = "example.com/lib"
+
+	method := &Function{
+		Name: "Validate", Recv: "Config", Signature: "func() error",
+		PkgPath: pkgPath, PkgName: "lib", IsMethod: true,
+	}
+	configType := &Type{Name: "Config", Kind: "struct{}", PkgPath: pkgPath, PkgName: "lib"}
+
+	usage := &Usage{
+		Symbols: map[string][]Location{
+			"example.com/lib.Config.Validate": {{File: "main.go", Line: 5}},
+			"example.com/lib.Config":          {{File: "main.go", Line: 5}},
+		},
+	}
+
+	t.Run("method removed while its type survives", func(t *testing.T) {
+		oldAPI := &API{
+			Funcs: map[string]*Function{"example.com/lib.Config.Validate": method},
+			Types: map[string]*Type{"example.com/lib.Config": configType},
+		}
+		newAPI := &API{
+			Funcs: map[string]*Function{},
+			Types: map[string]*Type{"example.com/lib.Config": configType},
+		}
+
+		diff := diffAPIs(oldAPI, newAPI, usage)
+
+		if len(diff.Removed) != 1 {
+			t.Fatalf("expected 1 removed symbol, got %d: %+v", len(diff.Removed), diff.Removed)
+		}
+		if diff.Removed[0].Name != "lib.Config.Validate" || diff.Removed[0].Type != "method" {
+			t.Fatalf("expected the method to be reported, got %+v", diff.Removed[0])
+		}
+	})
+
+	t.Run("method removed along with its type", func(t *testing.T) {
+		oldAPI := &API{
+			Funcs: map[string]*Function{"example.com/lib.Config.Validate": method},
+			Types: map[string]*Type{"example.com/lib.Config": configType},
+		}
+		newAPI := &API{Funcs: map[string]*Function{}, Types: map[string]*Type{}}
+
+		diff := diffAPIs(oldAPI, newAPI, usage)
+
+		// The type's own entry covers the break; listing every method of a
+		// deleted type would count one break many times over
+		if len(diff.Removed) != 1 {
+			t.Fatalf("expected 1 removed symbol, got %d: %+v", len(diff.Removed), diff.Removed)
+		}
+		if diff.Removed[0].Name != "lib.Config" || diff.Removed[0].Type != "type" {
+			t.Fatalf("expected the type to be reported, got %+v", diff.Removed[0])
+		}
+	})
+}
