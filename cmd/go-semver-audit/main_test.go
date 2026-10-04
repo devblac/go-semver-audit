@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -360,8 +361,123 @@ func TestRun_JSONAndHTMLConflict(t *testing.T) {
 		htmlOutput:  true,
 	}
 
-	if err := run(cfg); err == nil || !strings.Contains(err.Error(), "cannot use -json and -html together") {
+	if err := run(cfg); err == nil || !strings.Contains(err.Error(), "use only one of -json, -html or -markdown") {
 		t.Fatalf("expected conflict error, got %v", err)
+	}
+
+	cfg.htmlOutput = false
+	cfg.markdownOutput = true
+	if err := run(cfg); err == nil || !strings.Contains(err.Error(), "use only one of") {
+		t.Fatalf("expected conflict error for -json with -markdown, got %v", err)
+	}
+}
+
+func TestRun_FormatConflictFailsBeforeAnalysis(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	analyzed := false
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{Module: "example.com/mod"}, nil
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) {
+		analyzed = true
+		return &stubAnalyzer{analyzeResult: &analyzer.Result{Changes: &analyzer.Diff{}}}, nil
+	}
+
+	err := run(config{upgrade: "example.com/mod@v1.0.0", htmlOutput: true, markdownOutput: true})
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+	if analyzed {
+		t.Fatalf("flag validation should happen before the (slow) analysis")
+	}
+}
+
+func TestRun_MarkdownReport(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	stdout := &bytes.Buffer{}
+	stdoutWriter = stdout
+	stderrWriter = &bytes.Buffer{}
+
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{Module: "example.com/mod", NewVersion: "v1.1.0"}, nil
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) {
+		return &stubAnalyzer{analyzeResult: &analyzer.Result{Module: "example.com/mod", Changes: &analyzer.Diff{}}}, nil
+	}
+	formatMarkdownFn = func(res *analyzer.Result) (string, error) { return "### markdown\n", nil }
+
+	if err := run(config{upgrade: "example.com/mod@v1.1.0", markdownOutput: true}); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "### markdown") {
+		t.Fatalf("expected Markdown output, got %q", stdout.String())
+	}
+}
+
+func TestMain_ListUpgrades(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "go.mod"),
+		"module example.com/app\n\ngo 1.24.0\n\nrequire (\n\texample.com/a v1.0.0\n\texample.com/b v1.0.0\n)\n")
+	headGoMod := filepath.Join(dir, "head.go.mod")
+	writeFile(t, headGoMod,
+		"module example.com/app\n\ngo 1.24.0\n\nrequire (\n\texample.com/a v1.2.0\n\texample.com/b v1.0.0\n)\n")
+
+	exitCode := -1
+	exitFunc = func(code int) { exitCode = code }
+	stdout := &bytes.Buffer{}
+	stdoutWriter = stdout
+	stderrWriter = &bytes.Buffer{}
+
+	os.Args = []string{"go-semver-audit", "-path", dir, "-list-upgrades", headGoMod}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+
+	main()
+
+	if exitCode != -1 {
+		t.Fatalf("expected a normal return, got exit code %d", exitCode)
+	}
+	if got := stdout.String(); got != "example.com/a@v1.2.0\n" {
+		t.Fatalf("-list-upgrades output = %q, want %q", got, "example.com/a@v1.2.0\n")
+	}
+}
+
+func TestMain_ListUpgradesMissingGoMod(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	exitCode := -1
+	exitFunc = func(code int) { exitCode = code }
+	stdoutWriter = &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	stderrWriter = stderr
+
+	dir := t.TempDir()
+	os.Args = []string{"go-semver-audit", "-path", dir, "-list-upgrades", filepath.Join(dir, "missing.mod")}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+
+	main()
+
+	if exitCode != exitError {
+		t.Fatalf("expected exit code %d, got %d", exitError, exitCode)
+	}
+	if !strings.Contains(stderr.String(), "go.mod") {
+		t.Fatalf("expected an error about go.mod, got %q", stderr.String())
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -514,6 +630,7 @@ func stubGlobals() func() {
 	oldNewAnalyzer := newAnalyzerFn
 	oldFormatJSON := formatJSONFn
 	oldFormatHTML := formatHTMLFn
+	oldFormatMarkdown := formatMarkdownFn
 	oldFormatText := formatTextFn
 	oldExit := exitFunc
 	oldStdout := stdoutWriter
@@ -526,6 +643,7 @@ func stubGlobals() func() {
 		newAnalyzerFn = oldNewAnalyzer
 		formatJSONFn = oldFormatJSON
 		formatHTMLFn = oldFormatHTML
+		formatMarkdownFn = oldFormatMarkdown
 		formatTextFn = oldFormatText
 		exitFunc = oldExit
 		stdoutWriter = oldStdout
