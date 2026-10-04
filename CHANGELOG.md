@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub Action (`uses: devblac/go-semver-audit@...`) that audits every direct dependency a pull request upgrades - such as a Dependabot or Renovate PR - and posts the result as a PR comment, updated in place on later pushes. Also writes a job summary, exposes `breaking`/`upgrades`/`report` outputs, and can fail the check on breaking changes. Analysis runs against the PR's base commit, where the project is known to build
 - `-markdown` output: a GitHub-flavored Markdown report for pull request comments and job summaries, with a table of breaking changes and collapsible signature details
 - `-list-upgrades <go.mod>`: prints `module@version` for each direct dependency whose version differs between the project's go.mod and the given one, e.g. the head of a Dependabot or Renovate PR. Indirect requirements and `/vN` module path changes are skipped
 
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minimum Go version raised to 1.24 (was 1.21) to pick up `golang.org/x/tools` v0.39.0, required for the module-loading fix above and needed to type-check dependencies built with newer Go toolchains
 - CI now tests against Go 1.24 and 1.27 instead of 1.21 and 1.22
 - Reports now name symbols as `package.Symbol` (`slices.SortFunc`) and methods as `package.Type.Method` (`lib.Config.Validate`) instead of bare names, which were ambiguous once a module had more than one package. This changes the `name` field in JSON output, and the `type` field is now `method` for methods
+- README is stored as UTF-8 instead of UTF-16, and documents the GitHub Action, `-markdown`, `-list-upgrades` and exit codes
 - Conflicting output flags (`-json`, `-html`, `-markdown`) are rejected before the analysis runs instead of after it
 - Usage locations are reported relative to the project root with forward slashes (`internal/app/handler.go:42`) instead of as absolute paths, in every output format
 - Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes (or warnings with `-strict`), `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`

@@ -92,22 +92,52 @@ go-semver-audit -upgrade golang.org/x/sync@v0.5.0 -strict
 go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -unused
 ```
 
-### CI Guardrail (copy-paste)
+### Markdown Report for Pull Requests
+
+```bash
+go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -markdown
+```
+
+## GitHub Action: Audit Dependabot and Renovate PRs
+
+The action comments on every pull request that bumps a Go dependency, listing the breaking changes that hit **your** code — which symbols changed, the old and new signatures, and the file and line where you use them. On later pushes it updates the same comment instead of adding new ones.
 
 ```yaml
-- uses: actions/setup-go@v5
-  with:
-    go-version: "1.22"
-- name: Audit dependency upgrade
-  env:
-    MODULE: github.com/pkg/errors
-    VERSION: v0.9.1
-  run: go-semver-audit -upgrade ${MODULE}@${VERSION} -json -strict > semver-report.json
-- uses: actions/upload-artifact@v4
-  with:
-    name: semver-report
-    path: semver-report.json
+# .github/workflows/semver-audit.yml
+name: Dependency audit
+
+on:
+  pull_request:
+    paths: ["**/go.mod"]
+
+permissions:
+  contents: read
+  pull-requests: write # to post the comment
+
+jobs:
+  go-semver-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: devblac/go-semver-audit@main # pin a release tag or commit SHA
 ```
+
+It works out which direct dependencies the PR upgrades by comparing the base and head `go.mod`, then analyzes each one against the PR's **base** commit — the code the upgrade is being applied to. Indirect dependencies are skipped.
+
+| Input | Description | Default |
+|-------|-------------|---------|
+| `working-directory` | Directory containing the `go.mod` to audit, relative to the repository root | `.` |
+| `comment` | Post the report as a PR comment | `true` |
+| `fail-on-breaking` | Fail the step when an upgrade breaks code in this project | `true` |
+| `fail-on-error` | Fail the step when an upgrade could not be analyzed | `false` |
+| `github-token` | Token used to post the comment | `${{ github.token }}` |
+
+Outputs: `breaking` (`"true"`/`"false"`), `upgrades` (number analyzed) and `report` (path to the Markdown report). The report is also written to the job summary, so it is visible even when the token cannot comment — for example on pull requests from forks.
+
+For a monorepo, run the action once per module with a different `working-directory`.
 
 ## Example Output
 
@@ -142,10 +172,20 @@ Summary: 3 breaking changes affecting 4 locations in your code.
 | `-upgrade` | Dependency upgrade in format `module@version` | (required) |
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
-| `-strict` | Exit non-zero on warnings (not just errors) | `false` |
+| `-markdown` | Output results as GitHub-flavored Markdown | `false` |
+| `-strict` | Also exit non-zero on warnings (unused dependencies) | `false` |
 | `-unused` | Report unused dependencies after upgrade | `false` |
+| `-list-upgrades` | Print `module@version` for each direct dependency whose version differs between the project's `go.mod` and the given `go.mod`, then exit | - |
 | `-v` | Verbose output | `false` |
 | `-help` | Show help message | - |
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | No breaking changes |
+| `1` | Breaking changes detected (or warnings, with `-strict`) |
+| `2` | The analysis could not be completed |
 
 ## How It Works
 
