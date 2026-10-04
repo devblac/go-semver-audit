@@ -6,35 +6,32 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/devblac/go-semver-audit)](https://github.com/devblac/go-semver-audit)
 
-A production-ready CLI tool for analyzing breaking changes in Go dependency upgrades.
+Find out which breaking changes in a Go dependency upgrade hit **your** code — which symbols, and where you use them — before you upgrade.
 
 ## Why This Exists
 
-Upgrading Go dependencies is risky. Your code might compile successfully after bumping a version, but runtime breaks or unexpected behavior can slip through. While Go's semantic versioning and module system help, they don't catch everything—especially when maintainers accidentally break compatibility or you're jumping multiple versions.
+Semantic versioning promises that minor and patch releases are compatible, but Go modules break that promise more often than you'd like: `v0.x` modules may change anything, and maintainers sometimes break compatibility by accident. When a Dependabot or Renovate PR turns red, the build tells you *that* something broke, not what changed upstream or how much of your code it touches.
 
-`go-semver-audit` performs static analysis to compare the public API surface of your current dependency version against a proposed upgrade, then checks which exported symbols your code actually uses. It produces a risk report highlighting potential breaking changes that affect your project.
-
-Think of it as a safety net before you commit to that upgrade.
+`go-semver-audit` compares the exported API of the version you use with the version you're upgrading to, then checks which of the changed symbols your code — including your tests — actually uses. You get a short report of the breaking changes that affect you, with old and new signatures and the file and line of every use.
 
 ## 30-second start
 - Install: `go install github.com/devblac/go-semver-audit/cmd/go-semver-audit@latest`
-- Run once: `go-semver-audit -upgrade github.com/pkg/errors@v0.9.1`
-- Read the text report (default). Use `-json` for CI or `-strict` to fail on warnings.
+- Run in your module: `go-semver-audit -upgrade github.com/pkg/errors@v0.9.1`
+- Read the text report (default). Use `-json` or `-markdown` for automation, or the [GitHub Action](#github-action-audit-dependabot-and-renovate-prs) to audit dependency PRs automatically.
 
 ## When to use it
-- Before bumping a dependency (especially majors or multi-version jumps)
-- When you need proof that an upgrade is safe for your code
-- When a team asks “what will this break?” and you need a quick, actionable report
+- Before bumping a dependency, especially `v0.x` modules and multi-version jumps
+- On every Dependabot or Renovate PR, via the GitHub Action
+- When a team asks “what will this break?” and you need a quick, actionable answer
 
 ## Features
 
-- **API Diff Analysis**: Compares exported types, functions, methods, and interfaces between dependency versions
-- **Usage-Aware**: Only reports breaking changes for APIs you actually use in your code
-- **Risk Reports**: Clear, actionable output showing removed functions, changed signatures, modified interfaces
-- **Batch Mode**: Analyze multiple dependency upgrades in one run
-- **Dead Dependency Detection**: Optionally identify unused dependencies after upgrades
-- **CI-Friendly**: JSON output mode and non-zero exit codes for automation
-- **Static Analysis Only**: No code execution, no compilation of untrusted code
+- **API Diff Analysis**: Compares exported functions, methods, types, and interfaces between dependency versions
+- **Usage-Aware**: Only reports changes to APIs your code uses, test files included, with the file and line of each use
+- **Pull Request Bot**: A GitHub Action that audits every dependency a PR upgrades and comments with the result
+- **CI-Friendly**: JSON and Markdown output, and exit codes that tell "breaking changes" apart from "analysis failed"
+- **Unused Dependency Detection** (experimental): Optionally list dependencies the project no longer imports
+- **Nothing Is Executed**: Dependency code is downloaded and type-checked, never run
 
 ## Installation
 
@@ -141,27 +138,36 @@ For a monorepo, run the action once per module with a different `working-directo
 
 ## Example Output
 
+A *minor* release, `v1.4.0` → `v1.5.0`, that removed a function, added a `context.Context` parameter to a method, and added a method to an interface the project implements in a test (`go-semver-audit -upgrade example.com/kvstore@v1.5.0 -v`):
+
 ```
-Analyzing upgrade: github.com/example/lib v1.2.0 -> v2.0.0
+Analyzing upgrade: example.com/kvstore v1.4.0 -> v1.5.0
 
 ⚠️  BREAKING CHANGES DETECTED
 
-Removed Functions:
-  - lib.OldHelper (used in: main.go:45, utils/helper.go:12)
-  
-Changed Signatures:
-  - lib.ParseConfig
-    Old: func ParseConfig(path string) (*Config, error)
-    New: func ParseConfig(path string, opts ...Option) (*Config, error)
-    Used in: config/loader.go:23
-  
-Modified Interfaces:
-  - lib.Handler
-    Removed method: Handle(ctx context.Context) error
-    Added method: HandleWithContext(ctx context.Context, meta Metadata) error
-    Implementations found in: handlers/http.go:67
+Summary: 3 breaking change(s) affecting 4 location(s).
 
-Summary: 3 breaking changes affecting 4 locations in your code.
+What to fix next:
+  - Remove/replace kvstore.OpenWithOptions (function) at main.go:11
+  - Update call to kvstore.Store.Get at cache/cache.go:10, and 1 more
+  - Update implementations of kvstore.Iterator at cache/cache_test.go:15
+
+Removed Symbols:
+  - kvstore.OpenWithOptions (function) (used in: main.go:11)
+
+Changed Signatures:
+  - kvstore.Store.Get
+    Old: func(key string) ([]byte, error)
+    New: func(ctx context.Context, key string) ([]byte, error)
+    Used in: cache/cache.go:10, main.go:17
+
+Modified Interfaces:
+  - kvstore.Iterator
+    Added methods:
+      - Err() error
+    Used in: cache/cache_test.go:15
+
+Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 ```
 
 ## Flags
@@ -189,18 +195,22 @@ Summary: 3 breaking changes affecting 4 locations in your code.
 
 ## How It Works
 
-1. **Parse Current State**: Load your Go project and identify current dependency versions
-2. **Fetch Versions**: Download/cache both old and new versions of the target dependency
-3. **Extract APIs**: Parse exported symbols (types, functions, methods, interfaces) from both versions
-4. **Analyze Usage**: Scan your codebase to find which exported symbols you actually import and use
-5. **Diff & Compare**: Identify removed symbols, changed signatures, modified interfaces
-6. **Generate Report**: Output only breaking changes that affect symbols you use
+1. **Load the Project**: Type-check your module, test files included, and read the dependency's current version
+2. **Fetch Versions**: Download both versions with `go mod download` (cached in the module cache)
+3. **Extract APIs**: Type-check the dependency packages you import, in both versions, and collect their exported functions, methods, types, and interfaces
+4. **Analyze Usage**: Find every exported symbol of the dependency your code uses, matched by package and receiver type
+5. **Diff & Compare**: Identify removed symbols, changed signatures, and modified interfaces
+6. **Generate Report**: Output only the changes that affect symbols you use
 
 ## Limitations
 
 This tool performs **static analysis only** and has inherent limitations:
 
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
+- **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
+- **Not compared yet**: Exported variables and constants, struct fields, and changes to a type's underlying definition
+- **Possible false positives**: Renaming a parameter is reported as a signature change, although callers are unaffected; a changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it
+- **Unused dependencies** (`-unused`) is experimental and can report dependencies that are in use
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly
 - **CGO dependencies**: Modules with cgo may not be fully analyzable
@@ -210,89 +220,31 @@ This tool performs **static analysis only** and has inherent limitations:
 
 **This tool is a safety aid, not a guarantee.** Always test your upgrades thoroughly.
 
-## Testing
+## Troubleshooting
 
-The project includes comprehensive test coverage and continuous integration.
+**`module ... not found in project dependencies`**: No package of your module imports the dependency, tests included. It may be an indirect dependency, or imported only under build tags that are not active on your platform.
 
-### Running Tests Locally
+**`packages contain errors`**: The project, including its tests, must compile at its *current* dependency versions. Check with `go vet ./...`.
 
-```bash
-# Run all tests
-go test ./...
+**The first run is slow**: Both versions of the dependency, and their own dependencies, are downloaded and type-checked. Later runs reuse the module and build caches.
 
-# Run tests with coverage
-make test-coverage
-
-# Run with race detector
-go test -race ./...
-```
-
-See [TESTING.md](TESTING.md) for detailed testing documentation.
-
-### Continuous Integration
-
-CI runs automatically on all pull requests and pushes to main/develop branches:
-- Tests across multiple OS (Linux, Windows, macOS) and Go versions (1.21, 1.22)
-- Linting with `go vet`, `gofmt`, and `staticcheck`
-- Coverage reporting via Codecov
-- Build verification
-
-[![CI Status](https://github.com/yourusername/go-semver-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/yourusername/go-semver-audit/actions/workflows/ci.yml)
-
-### Releases
-- Tag a version: `git tag v0.x.y && git push origin v0.x.y`
-- CI (GitHub Actions) builds cross-platform binaries via GoReleaser and publishes the GitHub Release
-- Local dry run: `goreleaser release --skip=publish --clean`
-
-## Contributing
-
-Contributions welcome! This project aims to stay minimal and focused.
-
-### Quick Start
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/devblac/go-semver-audit.git
-cd go-semver-audit
-
-# Run tests
-make test
-
-# Run all checks (format, lint, test)
-make check
+go test ./...          # all tests, including the offline end-to-end test
+go test -short ./...   # unit tests only
+make check             # format, lint and test
 ```
 
-### Adding Features
+CI runs the tests on Linux, Windows and macOS with Go 1.24 and 1.27, plus `go vet`, `gofmt` and `staticcheck`. See [TESTING.md](TESTING.md) for details and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Write tests for your changes
-4. Ensure all tests pass and code is formatted (`go fmt ./...`)
-5. Commit with clear messages (`git commit -m 'Add detection for interface embedding'`)
-6. Push and open a Pull Request
-
-### Code Style
-
-- Follow [Effective Go](https://go.dev/doc/effective_go) guidelines
-- Keep functions small and focused
-- Use table-driven tests
-- Document exported functions and types
-- Handle errors explicitly, no silent failures
-
-### Reporting Issues
-
-Use GitHub Issues to report bugs or suggest features. Include:
-- Go version (`go version`)
-- Operating system
-- Full command you ran
-- Expected vs actual behavior
-- Minimal reproduction example if possible
+Releases: pushing a `v*` tag builds cross-platform binaries with GoReleaser and publishes a GitHub release.
 
 ## Related Tools
 
-- [golang.org/x/exp/apidiff](https://pkg.go.dev/golang.org/x/exp/apidiff): Experimental API diff tool (library-focused)
-- [go mod graph](https://go.dev/ref/mod#go-mod-graph): Visualize dependency graphs
-- [nancy](https://github.com/sonatype-nexus-community/nancy): Vulnerability scanner for Go dependencies
+- [gorelease](https://pkg.go.dev/golang.org/x/exp/cmd/gorelease): Checks a module you *publish* for incompatible changes before tagging a release; `go-semver-audit` is the consumer-side counterpart
+- [golang.org/x/exp/apidiff](https://pkg.go.dev/golang.org/x/exp/apidiff): Library for computing API differences between two package versions
+- [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck): Reports known vulnerabilities that affect your code
 
 ## License
 
