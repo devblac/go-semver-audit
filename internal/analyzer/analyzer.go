@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,6 +136,9 @@ func (a *Analyzer) loadProject() error {
 			packages.NeedDeps | packages.NeedTypes | packages.NeedSyntax |
 			packages.NeedTypesInfo | packages.NeedModule,
 		Dir: a.projectPath,
+		// Test files use dependencies too - often exclusively, as with
+		// testify - and break just as hard when those dependencies change
+		Tests: true,
 	}
 
 	pkgs, err := packagesLoad(cfg, "./...")
@@ -416,24 +420,49 @@ func (a *Analyzer) findUsage(module string) *Usage {
 			}
 
 			pos := pkg.Fset.Position(ident.Pos())
-			loc := Location{File: pos.Filename, Line: pos.Line}
+			loc := Location{File: a.relativePath(pos.Filename), Line: pos.Line}
 			for _, key := range keys {
 				usage.Symbols[key] = append(usage.Symbols[key], loc)
 			}
 		}
 	}
 
-	// TypesInfo.Uses is a map, so locations arrive in random order
-	for _, locations := range usage.Symbols {
+	for key, locations := range usage.Symbols {
+		// TypesInfo.Uses is a map, so locations arrive in random order
 		sort.Slice(locations, func(i, j int) bool {
 			if locations[i].File != locations[j].File {
 				return locations[i].File < locations[j].File
 			}
 			return locations[i].Line < locations[j].Line
 		})
+		// With tests loaded, a package's regular files are type-checked twice
+		// (once on their own, once in the test variant), so drop the repeats
+		usage.Symbols[key] = slices.Compact(locations)
 	}
 
 	return usage
+}
+
+// relativePath reports a file relative to the project root with forward
+// slashes, so reports read the same on every OS and in PR comments. Both the
+// path as given and its symlink-resolved form are tried, because the go
+// command may report files under either (e.g. /var vs /private/var on macOS).
+func (a *Analyzer) relativePath(file string) string {
+	if a.projectPath == "" || !filepath.IsAbs(file) {
+		return filepath.ToSlash(file)
+	}
+
+	roots := []string{a.projectPath}
+	if resolved, err := filepath.EvalSymlinks(a.projectPath); err == nil && resolved != a.projectPath {
+		roots = append(roots, resolved)
+	}
+	for _, root := range roots {
+		rel, err := filepath.Rel(root, file)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(file)
 }
 
 // usageKeys returns the symbol keys a used object should be recorded under,

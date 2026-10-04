@@ -49,6 +49,10 @@ func New() string { return "keep" }
 
 func Gone() {}
 `,
+		"assert/assert.go": `package assert
+
+func Equal(t any, want, got any) bool { return want == got }
+`,
 	})
 	// v1.1.0 changes SortFunc (same break as golang.org/x/exp/slices in 2023),
 	// changes the Config.Validate method signature, removes OldHelper and
@@ -70,6 +74,10 @@ func (c *Config) Validate(ctx context.Context) error { return nil }
 		"keep/keep.go": `package keep
 
 func New() string { return "keep" }
+`,
+		"assert/assert.go": `package assert
+
+func Equal(t any, want, got any, msg string) bool { return want == got }
 `,
 	})
 
@@ -93,6 +101,19 @@ func main() {
 	// through the method call below
 	cfg := lib.New()
 	_ = cfg.Validate(true)
+}
+`,
+		// The assert package is only ever used from a test file, like testify
+		"main_test.go": `package main
+
+import (
+	"testing"
+
+	"example.com/lib/assert"
+)
+
+func TestMain(t *testing.T) {
+	assert.Equal(t, 1, 1)
 }
 `,
 	})
@@ -129,19 +150,36 @@ func main() {
 		t.Fatalf("Analyze() versions = %s -> %s, want v1.0.0 -> v1.1.0", result.OldVersion, result.NewVersion)
 	}
 
-	changed := map[string]bool{}
+	changed := map[string]ChangedSignature{}
 	for _, c := range result.Changes.Changed {
-		changed[c.Name] = true
+		changed[c.Name] = c
 	}
-	if !changed["lib.SortFunc"] {
+	has := func(name string) bool { _, ok := changed[name]; return ok }
+
+	// Usage in _test.go files counts: a dependency used only by tests breaks
+	// the test build just as hard
+	if eq, ok := changed["assert.Equal"]; !ok {
+		t.Errorf("expected assert.Equal (used only in a test file) to be reported, got %+v", result.Changes.Changed)
+	} else if len(eq.UsedIn) != 1 || eq.UsedIn[0].File != "main_test.go" {
+		t.Errorf("assert.Equal locations = %+v, want [main_test.go:N]", eq.UsedIn)
+	}
+
+	// Locations are relative to the project root, and not duplicated even
+	// though main.go is type-checked both in main and in its test variant
+	if sf, ok := changed["lib.SortFunc"]; ok {
+		if len(sf.UsedIn) != 1 || sf.UsedIn[0].File != "main.go" {
+			t.Errorf("lib.SortFunc locations = %+v, want a single main.go:N", sf.UsedIn)
+		}
+	}
+	if !has("lib.SortFunc") {
 		t.Errorf("expected lib.SortFunc signature change, got %+v", result.Changes.Changed)
 	}
 	// Methods are keyed by receiver; before that they never matched usage and
 	// changed method signatures went undetected entirely
-	if !changed["lib.Config.Validate"] {
+	if !has("lib.Config.Validate") {
 		t.Errorf("expected lib.Config.Validate signature change, got %+v", result.Changes.Changed)
 	}
-	if changed["lib.Stable"] {
+	if has("lib.Stable") {
 		t.Errorf("lib.Stable did not change but was reported")
 	}
 
