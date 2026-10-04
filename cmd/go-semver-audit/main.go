@@ -164,8 +164,8 @@ func run(cfg config) error {
 
 	if cfg.verbose {
 		fmt.Fprintf(stderrWriter, "Analyzing project at: %s\n", cfg.projectPath)
-		fmt.Fprintf(stderrWriter, "Upgrade: %s %s -> %s\n",
-			moduleUpgrade.Module, moduleUpgrade.OldVersion, moduleUpgrade.NewVersion)
+		// The current version is only known once the project is loaded
+		fmt.Fprintf(stderrWriter, "Upgrade: %s -> %s\n", moduleUpgrade.Module, moduleUpgrade.NewVersion)
 	}
 
 	// Create analyzer

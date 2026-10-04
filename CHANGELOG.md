@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calling a method now counts as using its receiver type, so `cfg := lib.New(); cfg.Validate()` is still caught when `Config` itself is removed
 - Methods of a type that was removed entirely are no longer listed separately from the type, which counted one break several times over
 - `_test.go` files are now part of the usage analysis. Dependencies used only from tests (testify is the most common Go dependency bump) were reported as "module not found in project dependencies", and breaking changes in them went undetected
+- Interface methods are compared and reported as `Name(params) results` instead of `func (example.com/pkg.Iface).Name(...)`. Besides being noisy, the receiver in the old form is the *embedded* interface for promoted methods, so a version that inlined an embedded interface reported its methods as removed and added at once
 - Reports are now deterministic. Symbols, interface methods, usage locations and unused dependencies were collected from maps and emitted in random order, so repeated runs over the same versions produced different output
 - `-strict` no longer treats added symbols as warnings. Almost every upgrade adds something, so the flag failed on every upgrade and was unusable as a CI signal; it now fails on unused dependencies only
 - Unused dependencies are reported as warnings even when the API diff is empty

@@ -346,7 +346,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 				if isInterface {
 					methods := make([]string, iface.NumMethods())
 					for i := 0; i < iface.NumMethods(); i++ {
-						methods[i] = iface.Method(i).String()
+						methods[i] = interfaceMethodString(iface.Method(i))
 					}
 					api.Interfaces[symbolKey(pkg.PkgPath, obj.Name())] = &Interface{
 						Name:    obj.Name(),
