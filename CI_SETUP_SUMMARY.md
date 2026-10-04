@@ -8,7 +8,7 @@ This document summarizes the continuous integration and testing infrastructure a
 
 1. **`.github/workflows/ci.yml`** - GitHub Actions CI workflow
    - Runs tests across multiple OS (Ubuntu, Windows, macOS)
-   - Tests with Go 1.21 and 1.22
+   - Tests with Go 1.24 and 1.27
    - Includes lint, test, and build jobs
    - Uploads coverage to Codecov
 
@@ -59,7 +59,7 @@ This document summarizes the continuous integration and testing infrastructure a
 ```yaml
 - uses: actions/setup-go@v5
   with:
-    go-version: "1.22"
+    go-version: "1.27"
 - name: Audit dependency upgrade
   env:
     MODULE: github.com/pkg/errors
@@ -76,7 +76,7 @@ This document summarizes the continuous integration and testing infrastructure a
 - **Features**:
   - Race detector enabled
   - Coverage profiling
-  - Coverage upload to Codecov (Ubuntu + Go 1.22 only)
+  - Coverage upload to Codecov (Ubuntu + Go 1.27 only)
   - Artifacts uploaded for inspection
 
 ### Lint Job
@@ -140,7 +140,7 @@ make clean
 
 1. **On Every Push to main/develop**:
    - Runs all tests on Linux, Windows, macOS
-   - Tests with Go 1.21 and 1.22
+   - Tests with Go 1.24 and 1.27
    - Runs linters
    - Verifies build
 

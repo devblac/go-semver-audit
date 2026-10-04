@@ -1,10 +1,15 @@
 package analyzer
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/types"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -13,6 +18,7 @@ import (
 var (
 	packagesLoad        = packages.Load
 	packagesPrintErrors = packages.PrintErrors
+	goModDownload       = downloadModule
 )
 
 // Analyzer performs static analysis on Go projects
@@ -51,19 +57,26 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 	}
 	upgrade.OldVersion = currentVersion
 
-	// Load API surface for old and new versions
-	oldAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.OldVersion)
+	// Find usage of the dependency in the project
+	usage := a.findUsage(upgrade.Module)
+	pkgPaths := make([]string, 0, len(usage.Imports))
+	for pkgPath := range usage.Imports {
+		pkgPaths = append(pkgPaths, pkgPath)
+	}
+	sort.Strings(pkgPaths)
+
+	// Load API surface of the imported packages for old and new versions
+	oldAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.OldVersion, pkgPaths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load old API: %w", err)
 	}
 
-	newAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.NewVersion)
+	newAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.NewVersion, pkgPaths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load new API: %w", err)
 	}
-
-	// Find usage of the dependency in the project
-	usage := a.findUsage(upgrade.Module)
+	// Resolve queries such as "latest" to the concrete version analyzed
+	upgrade.NewVersion = newAPI.Version
 
 	// Diff the APIs
 	diff := diffAPIs(oldAPI, newAPI, usage)
@@ -169,30 +182,131 @@ func (a *Analyzer) getDependencyModules(pkg *packages.Package) []*packages.Modul
 	return modules
 }
 
-// loadModuleAPI loads the exported API surface for a specific module version
-func (a *Analyzer) loadModuleAPI(module, version string) (*API, error) {
-	// Load the module at the specified version
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax |
-			packages.NeedTypesInfo,
-		Env: append(os.Environ(), "GOFLAGS=-mod=readonly"),
+// moduleInfo is the subset of `go mod download -json` output we rely on
+type moduleInfo struct {
+	Path    string
+	Version string
+	Dir     string
+	Error   string
+}
+
+// downloadModule fetches module@version into the module cache and reports
+// where it lives. workDir must not be inside another module.
+func downloadModule(module, version, workDir string) (*moduleInfo, error) {
+	spec := fmt.Sprintf("%s@%s", module, version)
+	cmd := exec.Command("go", "mod", "download", "-json", spec)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+
+	var info moduleInfo
+	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
+		if runErr != nil {
+			return nil, fmt.Errorf("go mod download %s: %v: %s", spec, runErr, strings.TrimSpace(stderr.String()))
+		}
+		return nil, fmt.Errorf("go mod download %s: invalid output: %w", spec, err)
+	}
+	if info.Error != "" {
+		return nil, fmt.Errorf("go mod download %s: %s", spec, info.Error)
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("go mod download %s: %v: %s", spec, runErr, strings.TrimSpace(stderr.String()))
+	}
+	if info.Dir == "" {
+		return nil, fmt.Errorf("go mod download %s: no module directory reported", spec)
+	}
+	return &info, nil
+}
+
+// writeModFile prepares a writable go.mod/go.sum copy in workDir so the
+// module can be loaded from the read-only module cache via -modfile.
+func writeModFile(module, moduleDir, workDir string) (string, error) {
+	modFile := filepath.Join(workDir, "go.mod")
+	content, err := os.ReadFile(filepath.Join(moduleDir, "go.mod"))
+	if os.IsNotExist(err) {
+		// Pre-modules code: synthesize a minimal go.mod
+		content = []byte(fmt.Sprintf("module %s\n", module))
+	} else if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(modFile, content, 0o644); err != nil {
+		return "", err
 	}
 
-	modulePattern := fmt.Sprintf("%s@%s", module, version)
-	pkgs, err := packagesLoad(cfg, modulePattern)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load module %s: %w", modulePattern, err)
+	sum, err := os.ReadFile(filepath.Join(moduleDir, "go.sum"))
+	if err == nil {
+		err = os.WriteFile(filepath.Join(workDir, "go.sum"), sum, 0o644)
+	} else if os.IsNotExist(err) {
+		err = nil
 	}
+	return modFile, err
+}
 
-	if len(pkgs) == 0 {
-		return nil, fmt.Errorf("no packages found for module %s", modulePattern)
-	}
-
-	// Extract exported symbols
+// loadModuleAPI loads the exported API surface of the given packages of
+// module@version. Packages that do not exist in that version are skipped, so
+// their symbols show up as removed when diffed against a version that has them.
+func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*API, error) {
 	api := &API{
+		Version:    version,
 		Funcs:      make(map[string]*Function),
 		Types:      make(map[string]*Type),
 		Interfaces: make(map[string]*Interface),
+	}
+
+	workDir, err := os.MkdirTemp("", "go-semver-audit-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	info, err := goModDownload(module, version, workDir)
+	if err != nil {
+		return nil, err
+	}
+	api.Version = info.Version
+	spec := fmt.Sprintf("%s@%s", module, info.Version)
+
+	var patterns []string
+	for _, pkgPath := range pkgPaths {
+		rel := strings.TrimPrefix(strings.TrimPrefix(pkgPath, module), "/")
+		if fi, err := os.Stat(filepath.Join(info.Dir, filepath.FromSlash(rel))); err != nil || !fi.IsDir() {
+			continue
+		}
+		pattern := "."
+		if rel != "" {
+			pattern = "./" + rel
+		}
+		patterns = append(patterns, pattern)
+	}
+	if len(patterns) == 0 {
+		return api, nil
+	}
+
+	modFile, err := writeModFile(module, info.Dir, workDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare go.mod for %s: %w", spec, err)
+	}
+
+	cfg := &packages.Config{
+		Mode:       packages.NeedName | packages.NeedTypes,
+		Dir:        info.Dir,
+		BuildFlags: []string{"-mod=mod", "-modfile=" + modFile},
+		Env:        append(os.Environ(), "GOWORK=off", "GOFLAGS="),
+	}
+
+	pkgs, err := packagesLoad(cfg, patterns...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load module %s: %w", spec, err)
+	}
+
+	for _, pkg := range pkgs {
+		if len(pkg.Errors) > 0 {
+			// Never diff a partially loaded API: that silently hides breakages
+			return nil, fmt.Errorf("failed to load package %s from %s: %v", pkg.PkgPath, spec, pkg.Errors[0])
+		}
 	}
 
 	for _, pkg := range pkgs {
