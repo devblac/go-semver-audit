@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now tests against Go 1.24 and 1.27 instead of 1.21 and 1.22
 - Reports now name symbols as `package.Symbol` (`slices.SortFunc`) and methods as `package.Type.Method` (`lib.Config.Validate`) instead of bare names, which were ambiguous once a module had more than one package. This changes the `name` field in JSON output, and the `type` field is now `method` for methods
 - README is stored as UTF-8 instead of UTF-16, and documents the GitHub Action, `-markdown`, `-list-upgrades` and exit codes
+- `-version` reports the real version instead of a hardcoded `0.1.0`: release binaries are stamped by GoReleaser, and `go install ...@vX.Y.Z` builds read it from their build info
+- Removed QUICKSTART.md, INSTALL.md, PROJECT_STRUCTURE.md and CI_SETUP_SUMMARY.md, which duplicated the README or were out of date; CODE_OF_CONDUCT.md, previously empty, adopts the Contributor Covenant 2.1
+- README claims corrected: no longer "production-ready", no batch mode, no claim that dependency code is never compiled; the example output is real, and Limitations lists known gaps and false positives
+- CI installs staticcheck v0.8.1; v0.4.7 does not compile on Go 1.27
 - Conflicting output flags (`-json`, `-html`, `-markdown`) are rejected before the analysis runs instead of after it
 - Usage locations are reported relative to the project root with forward slashes (`internal/app/handler.go:42`) instead of as absolute paths, in every output format
 - Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes (or warnings with `-strict`), `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`

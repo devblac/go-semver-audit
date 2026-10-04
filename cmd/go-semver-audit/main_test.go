@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 
@@ -650,5 +651,36 @@ func stubGlobals() func() {
 		stderrWriter = oldStderr
 		os.Args = oldArgs
 		flag.CommandLine = oldCommandLine
+	}
+}
+
+func TestCurrentVersion(t *testing.T) {
+	origVersion, origReadBuildInfo := version, readBuildInfo
+	defer func() { version, readBuildInfo = origVersion, origReadBuildInfo }()
+
+	buildInfo := func(mainVersion string) func() (*debug.BuildInfo, bool) {
+		return func() (*debug.BuildInfo, bool) {
+			return &debug.BuildInfo{Main: debug.Module{Version: mainVersion}}, true
+		}
+	}
+
+	tests := []struct {
+		name      string
+		stamped   string
+		buildInfo func() (*debug.BuildInfo, bool)
+		want      string
+	}{
+		{"release binary stamped by GoReleaser", "v0.2.0", buildInfo("(devel)"), "v0.2.0"},
+		{"go install module@version", "", buildInfo("v0.2.0"), "v0.2.0"},
+		{"build without version info", "", buildInfo("(devel)"), "dev"},
+		{"no build info", "", func() (*debug.BuildInfo, bool) { return nil, false }, "dev"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			version, readBuildInfo = tt.stamped, tt.buildInfo
+			if got := currentVersion(); got != tt.want {
+				t.Errorf("currentVersion() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

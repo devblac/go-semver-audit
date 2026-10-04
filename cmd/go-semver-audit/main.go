@@ -6,13 +6,31 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/devblac/go-semver-audit/internal/analyzer"
 	"github.com/devblac/go-semver-audit/internal/gomod"
 	"github.com/devblac/go-semver-audit/internal/report"
 )
 
-const version = "0.1.0"
+// version is stamped into release binaries by GoReleaser
+// (-ldflags "-X main.version=..."). It stays empty in other builds.
+var version = ""
+
+// currentVersion reports the version of this binary. Without a stamped
+// version it falls back to the build info: `go install module@vX.Y.Z` records
+// vX.Y.Z, and since Go 1.24 a build inside a git checkout records a version
+// derived from the tags (e.g. v0.1.2-0.20261004...+dirty). Only builds with
+// no version information at all report "dev".
+func currentVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := readBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 // Exit codes. Breaking changes and tool failures are reported separately so
 // CI can tell "the upgrade is risky" apart from "the audit did not run".
@@ -51,6 +69,7 @@ var (
 	formatMarkdownFn           = report.FormatMarkdown
 	formatTextFn               = report.FormatText
 	exitFunc                   = os.Exit
+	readBuildInfo              = debug.ReadBuildInfo
 	stdoutWriter     io.Writer = os.Stdout
 	stderrWriter     io.Writer = os.Stderr
 )
@@ -59,7 +78,7 @@ func main() {
 	cfg := parseFlags()
 
 	if cfg.showVersion {
-		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", version)
+		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", currentVersion())
 		exitFunc(exitOK)
 		return
 	}
