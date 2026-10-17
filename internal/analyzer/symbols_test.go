@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"go/ast"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"testing"
@@ -39,5 +41,46 @@ func TestInterfaceMethodString(t *testing.T) {
 				t.Errorf("%s: interfaceMethodString() = %q, want one of %v", name, got, want)
 			}
 		}
+	}
+}
+
+// signatureOf type-checks src and returns the signature of its function F
+func signatureOf(t *testing.T, src string) *types.Signature {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "x.go", "package x\n"+src, 0)
+	if err != nil {
+		t.Fatalf("parse %q: %v", src, err)
+	}
+	pkg, err := (&types.Config{}).Check("example.com/x", fset, []*ast.File{file}, nil)
+	if err != nil {
+		t.Fatalf("type-check %q: %v", src, err)
+	}
+	return pkg.Scope().Lookup("F").Type().(*types.Signature)
+}
+
+func TestSignatureKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		old, new string
+		same     bool
+	}{
+		{"parameter renamed", "func F(key string) error { return nil }", "func F(k string) error { return nil }", true},
+		{"result named", "func F() (int, error) { return 0, nil }", "func F() (n int, err error) { return }", true},
+		{"generic parameter renamed", "func F[E any](s []E) {}", "func F[E any](items []E) {}", true},
+		{"parameter type changed", "func F(key string) {}", "func F(key int) {}", false},
+		{"parameter added", "func F(key string) {}", "func F(key string, n int) {}", false},
+		{"result added", "func F() {}", "func F() error { return nil }", false},
+		{"slice became variadic", "func F(xs []int) {}", "func F(xs ...int) {}", false},
+		{"constraint tightened", "func F[E any](s []E) {}", "func F[E comparable](s []E) {}", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldKey := signatureKey(signatureOf(t, tt.old))
+			newKey := signatureKey(signatureOf(t, tt.new))
+			if (oldKey == newKey) != tt.same {
+				t.Errorf("signatureKey() old %q, new %q: same = %v, want %v", oldKey, newKey, oldKey == newKey, tt.same)
+			}
+		})
 	}
 }

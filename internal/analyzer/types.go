@@ -51,15 +51,26 @@ type API struct {
 type Function struct {
 	Name      string // bare function or method name
 	Recv      string // receiver type name for methods, empty for functions
-	Signature string
-	PkgPath   string
-	PkgName   string
-	IsMethod  bool
+	Signature string // for display, with parameter names
+	// SignatureKey is what two versions are compared by: the signature without
+	// parameter names (see signatureKey). Empty means compare Signature.
+	SignatureKey string
+	PkgPath      string
+	PkgName      string
+	IsMethod     bool
 }
 
 // Display returns the report-friendly name of the function or method
 func (f *Function) Display() string {
 	return displayName(f.PkgName, f.Recv, f.Name)
+}
+
+// comparisonSignature returns what two versions of the function are compared by
+func (f *Function) comparisonSignature() string {
+	if f.SignatureKey != "" {
+		return f.SignatureKey
+	}
+	return f.Signature
 }
 
 // Kind returns "method" or "function", for reporting
@@ -86,14 +97,30 @@ func (t *Type) Display() string {
 // Interface represents an exported interface
 type Interface struct {
 	Name    string
-	Methods []string
-	PkgPath string
-	PkgName string
+	Methods []string // for display, e.g. "Key(prefix string) string"
+	// MethodKeys parallels Methods with what methods are compared by (see
+	// interfaceMethodKey). Nil means compare Methods.
+	MethodKeys []string
+	PkgPath    string
+	PkgName    string
 }
 
 // Display returns the report-friendly name of the interface
 func (i *Interface) Display() string {
 	return displayName(i.PkgName, "", i.Name)
+}
+
+// methodsByKey maps each method's comparison key to its display string
+func (i *Interface) methodsByKey() map[string]string {
+	methods := make(map[string]string, len(i.Methods))
+	for idx, display := range i.Methods {
+		key := display
+		if idx < len(i.MethodKeys) {
+			key = i.MethodKeys[idx]
+		}
+		methods[key] = display
+	}
+	return methods
 }
 
 // Usage tracks which symbols are used in the project

@@ -209,7 +209,7 @@ This tool performs **static analysis only** and has inherent limitations:
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
 - **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
 - **Not compared yet**: Exported variables and constants, struct fields, and changes to a type's underlying definition
-- **Possible false positives**: Renaming a parameter is reported as a signature change, although callers are unaffected; a changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it
+- **Possible false positives**: A changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it; renaming a *type* parameter of a generic function is reported as a signature change
 - **Unused dependencies** (`-unused`) is experimental and can report dependencies that are in use
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly

@@ -329,10 +329,11 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 			case *types.Func:
 				sig := obj.Type().(*types.Signature)
 				api.Funcs[symbolKey(pkg.PkgPath, obj.Name())] = &Function{
-					Name:      obj.Name(),
-					Signature: sig.String(),
-					PkgPath:   pkg.PkgPath,
-					PkgName:   pkg.Name,
+					Name:         obj.Name(),
+					Signature:    sig.String(),
+					SignatureKey: signatureKey(sig),
+					PkgPath:      pkg.PkgPath,
+					PkgName:      pkg.Name,
 				}
 
 			case *types.TypeName:
@@ -345,14 +346,17 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 				iface, isInterface := named.Underlying().(*types.Interface)
 				if isInterface {
 					methods := make([]string, iface.NumMethods())
+					methodKeys := make([]string, iface.NumMethods())
 					for i := 0; i < iface.NumMethods(); i++ {
 						methods[i] = interfaceMethodString(iface.Method(i))
+						methodKeys[i] = interfaceMethodKey(iface.Method(i))
 					}
 					api.Interfaces[symbolKey(pkg.PkgPath, obj.Name())] = &Interface{
-						Name:    obj.Name(),
-						Methods: methods,
-						PkgPath: pkg.PkgPath,
-						PkgName: pkg.Name,
+						Name:       obj.Name(),
+						Methods:    methods,
+						MethodKeys: methodKeys,
+						PkgPath:    pkg.PkgPath,
+						PkgName:    pkg.Name,
 					}
 				} else {
 					// Regular type
@@ -369,12 +373,13 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 						if method.Exported() {
 							sig := method.Type().(*types.Signature)
 							api.Funcs[methodSymbolKey(pkg.PkgPath, obj.Name(), method.Name())] = &Function{
-								Name:      method.Name(),
-								Recv:      obj.Name(),
-								Signature: sig.String(),
-								PkgPath:   pkg.PkgPath,
-								PkgName:   pkg.Name,
-								IsMethod:  true,
+								Name:         method.Name(),
+								Recv:         obj.Name(),
+								Signature:    sig.String(),
+								SignatureKey: signatureKey(sig),
+								PkgPath:      pkg.PkgPath,
+								PkgName:      pkg.Name,
+								IsMethod:     true,
 							}
 						}
 					}

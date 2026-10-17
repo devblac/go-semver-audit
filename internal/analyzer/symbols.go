@@ -25,8 +25,67 @@ func methodSymbolKey(pkgPath, recv, name string) string {
 	return pkgPath + "." + recv + "." + name
 }
 
+// signatureKey renders the parts of a signature that callers depend on: type
+// parameters, parameter and result types, and variadicity. Parameter and result
+// names are left out, so renaming a parameter - which breaks no caller - is not
+// reported as a signature change. Display strings keep the names.
+//
+// Type parameter names are kept, because they appear inside the parameter types
+// (e.g. []E); renaming a type parameter is still reported.
+func signatureKey(sig *types.Signature) string {
+	var b strings.Builder
+
+	if tparams := sig.TypeParams(); tparams.Len() > 0 {
+		b.WriteString("[")
+		for i := 0; i < tparams.Len(); i++ {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			tp := tparams.At(i)
+			b.WriteString(tp.Obj().Name())
+			b.WriteString(" ")
+			b.WriteString(types.TypeString(tp.Constraint(), nil))
+		}
+		b.WriteString("]")
+	}
+
+	b.WriteString("(")
+	writeTupleTypes(&b, sig.Params(), sig.Variadic())
+	b.WriteString(")")
+
+	if results := sig.Results(); results.Len() > 0 {
+		b.WriteString(" (")
+		writeTupleTypes(&b, results, false)
+		b.WriteString(")")
+	}
+	return b.String()
+}
+
+// writeTupleTypes writes the types of a parameter or result list, without names
+func writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
+	for i := 0; i < tuple.Len(); i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		t := tuple.At(i).Type()
+		if variadic && i == tuple.Len()-1 {
+			if slice, ok := t.(*types.Slice); ok {
+				b.WriteString("...")
+				t = slice.Elem()
+			}
+		}
+		b.WriteString(types.TypeString(t, nil))
+	}
+}
+
+// interfaceMethodKey identifies an interface method for comparison: its name
+// and signatureKey, so renaming a method's parameters is not a change.
+func interfaceMethodKey(m *types.Func) string {
+	return m.Name() + signatureKey(m.Type().(*types.Signature))
+}
+
 // interfaceMethodString renders an interface method as "Name(params) results",
-// which is what interface methods are compared and reported by.
+// which is how interface methods are reported.
 //
 // types.Func.String() would prefix the receiver instead, e.g.
 // "func (example.com/kvstore.Iterator).Err() error". Besides being noisy, that
