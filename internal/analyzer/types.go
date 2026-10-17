@@ -15,7 +15,6 @@ type Result struct {
 	OldVersion string
 	NewVersion string
 	Changes    *Diff
-	UnusedDeps []string
 }
 
 // HasBreakingChanges returns true if the result contains breaking changes
@@ -26,16 +25,6 @@ func (r *Result) HasBreakingChanges() bool {
 	return len(r.Changes.Removed) > 0 ||
 		len(r.Changes.Changed) > 0 ||
 		len(r.Changes.InterfaceChanges) > 0
-}
-
-// HasWarnings returns true if the result contains non-breaking findings that
-// are worth failing on in strict mode.
-//
-// Added symbols are deliberately excluded: they are informational, and nearly
-// every upgrade adds something, which made -strict fail on every upgrade and
-// therefore useless as a CI signal.
-func (r *Result) HasWarnings() bool {
-	return len(r.UnusedDeps) > 0
 }
 
 // API represents the exported API surface of a module.

@@ -76,62 +76,6 @@ func TestGetCurrentVersion(t *testing.T) {
 	}
 }
 
-func TestGetDirectDependencies(t *testing.T) {
-	a := &Analyzer{
-		pkgs: []*packages.Package{
-			{
-				Imports: map[string]*packages.Package{
-					"example.com/a/pkg": {Module: &packages.Module{Path: "example.com/a"}},
-					"example.com/b/pkg": {Module: &packages.Module{Path: "example.com/b"}},
-				},
-			},
-			{
-				Imports: map[string]*packages.Package{
-					"example.com/a/other": {Module: &packages.Module{Path: "example.com/a"}},
-				},
-			},
-		},
-	}
-
-	deps, err := a.getDirectDependencies()
-	if err != nil {
-		t.Fatalf("getDirectDependencies() error = %v", err)
-	}
-
-	want := []string{"example.com/a", "example.com/b"}
-	if len(deps) != len(want) {
-		t.Fatalf("getDirectDependencies() count = %d, want %d", len(deps), len(want))
-	}
-
-	if !containsAll(deps, want) {
-		t.Fatalf("getDirectDependencies() = %v, want %v", deps, want)
-	}
-}
-
-func TestFindUnusedDependencies(t *testing.T) {
-	a := &Analyzer{
-		pkgs: []*packages.Package{
-			{
-				Imports: map[string]*packages.Package{
-					"example.com/a": {PkgPath: "example.com/a", Module: &packages.Module{Path: "example.com/a"}},
-					"example.com/b": {PkgPath: "example.com/b", Module: &packages.Module{Path: "example.com/b"}},
-					// PkgPath intentionally empty so it is never marked as imported
-					"example.com/c": {PkgPath: "", Module: &packages.Module{Path: "example.com/c"}},
-				},
-			},
-		},
-	}
-
-	unused, err := a.FindUnusedDependencies()
-	if err != nil {
-		t.Fatalf("FindUnusedDependencies() error = %v", err)
-	}
-
-	if !reflect.DeepEqual(unused, []string{"example.com/c"}) {
-		t.Fatalf("FindUnusedDependencies() = %v, want [example.com/c]", unused)
-	}
-}
-
 func TestFindUsage(t *testing.T) {
 	const module = "example.com/lib"
 
@@ -425,35 +369,6 @@ func TestLoadProjectFailsOnPackageErrors(t *testing.T) {
 	if err := a.loadProject(); err == nil {
 		t.Fatalf("loadProject() expected error due to package errors")
 	}
-}
-
-func TestFindUnusedDependenciesLoadProjectError(t *testing.T) {
-	restoreLoad := mockPackagesLoad(func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error) {
-		return nil, errors.New("load failure")
-	})
-	defer restoreLoad()
-	restorePrint := mockPackagesPrintErrors(func(pkgs []*packages.Package) int { return 0 })
-	defer restorePrint()
-
-	a := &Analyzer{projectPath: ".", pkgs: nil}
-	if _, err := a.FindUnusedDependencies(); err == nil {
-		t.Fatalf("FindUnusedDependencies() expected error when loadProject fails")
-	}
-}
-
-// --- Helpers ---
-
-func containsAll(have, want []string) bool {
-	set := make(map[string]bool)
-	for _, v := range have {
-		set[v] = true
-	}
-	for _, w := range want {
-		if !set[w] {
-			return false
-		}
-	}
-	return true
 }
 
 func mockPackagesLoad(fn func(cfg *packages.Config, patterns ...string) ([]*packages.Package, error)) func() {
