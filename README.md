@@ -222,7 +222,7 @@ go test -short ./...   # unit tests only
 make check             # format, lint and test
 ```
 
-CI runs the tests on Linux, Windows and macOS with Go 1.24 and 1.27, plus `go vet`, `gofmt` and `staticcheck`. See [TESTING.md](TESTING.md) for details and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+CI runs the tests on Linux, Windows and macOS with Go 1.26 and 1.27, plus `go vet`, `gofmt` and `staticcheck`. See [TESTING.md](TESTING.md) for details and [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 Releases: pushing a `v*` tag builds cross-platform binaries with GoReleaser and publishes a GitHub release.
 
