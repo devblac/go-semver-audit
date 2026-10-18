@@ -43,7 +43,7 @@ Enhancement suggestions are welcome! Include:
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.26 or later
 - Git
 - Make (optional, but recommended)
 

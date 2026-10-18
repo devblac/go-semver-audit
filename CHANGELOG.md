@@ -27,8 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unused dependencies are reported as warnings even when the API diff is empty
 
 ### Changed
-- Minimum Go version raised to 1.24 (was 1.21) to pick up `golang.org/x/tools` v0.39.0, required for the module-loading fix above and needed to type-check dependencies built with newer Go toolchains
-- CI now tests against Go 1.24 and 1.27 instead of 1.21 and 1.22
+- Minimum Go version raised to 1.26 (was 1.21) to pick up `golang.org/x/tools` v0.52.0. Older x/tools releases cannot read the export data written by newer Go compilers ("export data version 4 is greater than maximum supported version 2" under Go 1.27), so the analysis failed for any project built with the current Go release. 1.26 and 1.27 are the supported Go releases
+- CI now tests against Go 1.26 and 1.27 instead of 1.21 and 1.22
 - Reports now name symbols as `package.Symbol` (`slices.SortFunc`) and methods as `package.Type.Method` (`lib.Config.Validate`) instead of bare names, which were ambiguous once a module had more than one package. This changes the `name` field in JSON output, and the `type` field is now `method` for methods
 - README is stored as UTF-8 instead of UTF-16, and documents the GitHub Action, `-markdown`, `-list-upgrades` and exit codes
 - Conflicting output flags (`-json`, `-html`, `-markdown`) are rejected before the analysis runs instead of after it
