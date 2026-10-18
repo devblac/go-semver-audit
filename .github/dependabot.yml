@@ -1,0 +1,20 @@
+# Keeps dependencies current. For this tool that is a correctness concern, not
+# hygiene: golang.org/x/tools must be able to read the export data written by
+# the Go compiler, and new Go releases - even patch releases - change that
+# format. A stale x/tools makes every analysis fail on the latest Go.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # x/tools requires matching x/mod and x/sync versions; bump them together
+      golang-x:
+        patterns:
+          - golang.org/x/*
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
