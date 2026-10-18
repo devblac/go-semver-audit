@@ -34,6 +34,16 @@ func SortFunc(s []int, less func(a, b int) bool) {}
 func OldHelper() string { return "old" }
 
 func Stable() string { return "stable" }
+
+func New() *Config { return &Config{} }
+
+type Config struct{ Name string }
+
+func (c *Config) Validate(strict bool) error { return nil }
+`,
+		"keep/keep.go": `package keep
+
+func New() string { return "keep" }
 `,
 		"sub/sub.go": `package sub
 
@@ -41,13 +51,25 @@ func Gone() {}
 `,
 	})
 	// v1.1.0 changes SortFunc (same break as golang.org/x/exp/slices in 2023),
-	// removes OldHelper and deletes the sub package entirely.
+	// changes the Config.Validate method signature, removes OldHelper and
+	// lib.New, and deletes the sub package entirely. keep.New is untouched,
+	// so it must not be confused with the removed lib.New.
 	publishModule(t, proxyDir, libPath, "v1.1.0", map[string]string{
 		"lib.go": `package lib
+
+import "context"
 
 func SortFunc(s []int, cmp func(a, b int) int) {}
 
 func Stable() string { return "stable" }
+
+type Config struct{ Name string }
+
+func (c *Config) Validate(ctx context.Context) error { return nil }
+`,
+		"keep/keep.go": `package keep
+
+func New() string { return "keep" }
 `,
 	})
 
@@ -58,13 +80,19 @@ func Stable() string { return "stable" }
 
 import (
 	"example.com/lib"
+	"example.com/lib/keep"
 	"example.com/lib/sub"
 )
 
 func main() {
 	lib.SortFunc([]int{2, 1}, func(a, b int) bool { return a < b })
-	_ = lib.OldHelper() + lib.Stable()
+	_ = lib.OldHelper() + lib.Stable() + keep.New()
 	sub.Gone()
+
+	// cfg's type is never named here, so the receiver type is only reachable
+	// through the method call below
+	cfg := lib.New()
+	_ = cfg.Validate(true)
 }
 `,
 	})
@@ -105,21 +133,31 @@ func main() {
 	for _, c := range result.Changes.Changed {
 		changed[c.Name] = true
 	}
-	if !changed["SortFunc"] {
-		t.Errorf("expected SortFunc signature change, got %+v", result.Changes.Changed)
+	if !changed["lib.SortFunc"] {
+		t.Errorf("expected lib.SortFunc signature change, got %+v", result.Changes.Changed)
 	}
-	if changed["Stable"] {
-		t.Errorf("Stable did not change but was reported")
+	// Methods are keyed by receiver; before that they never matched usage and
+	// changed method signatures went undetected entirely
+	if !changed["lib.Config.Validate"] {
+		t.Errorf("expected lib.Config.Validate signature change, got %+v", result.Changes.Changed)
+	}
+	if changed["lib.Stable"] {
+		t.Errorf("lib.Stable did not change but was reported")
 	}
 
 	removed := map[string]bool{}
 	for _, r := range result.Changes.Removed {
 		removed[r.Name] = true
 	}
-	for _, name := range []string{"OldHelper", "Gone"} {
+	for _, name := range []string{"lib.OldHelper", "lib.New", "sub.Gone"} {
 		if !removed[name] {
 			t.Errorf("expected %s to be reported as removed, got %+v", name, result.Changes.Removed)
 		}
+	}
+	// keep.New survives the upgrade: same bare name as the removed lib.New,
+	// different package, and it must not be dragged in by the collision
+	if removed["keep.New"] {
+		t.Errorf("keep.New still exists but was reported as removed: %+v", result.Changes.Removed)
 	}
 }
 
