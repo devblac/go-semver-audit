@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Module versions are now fetched with `go mod download` and loaded from the module cache. Previously `packages.Load("module@version")` always failed silently, so every upgrade was reported as having no breaking changes
 - Analysis fails loudly when a dependency package cannot be type-checked instead of diffing an empty API
-- Packages removed in the new version are reported as removed symbols
+- Packages removed in the new version are reported as removed symbols, including a module's root package that disappears while its subpackages remain
 - Version queries such as `@latest` are resolved to the concrete version analyzed
 - Symbols are matched by package path and receiver type instead of bare name. Methods were recorded as `Type.Method` in the API but as `Method` in usage, so **no method signature change or removal was ever detected**; same-named symbols in different packages of a module also overwrote each other (`lib.New` vs `lib/keep.New`)
 - Struct field usage is no longer recorded under the field's bare name, where it produced false matches against package-level symbols
