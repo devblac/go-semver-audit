@@ -36,7 +36,7 @@ func currentVersion() string {
 // CI can tell "the upgrade is risky" apart from "the audit did not run".
 const (
 	exitOK       = 0 // analysis completed, nothing to report
-	exitBreaking = 1 // breaking changes found (or warnings, with -strict)
+	exitBreaking = 1 // breaking changes found
 	exitError    = 2 // the analysis could not be completed
 )
 
@@ -47,16 +47,16 @@ type config struct {
 	jsonOutput     bool
 	htmlOutput     bool
 	markdownOutput bool
-	strict         bool
-	unused         bool
 	verbose        bool
-	showVersion    bool
+	// Deprecated flags, accepted so existing scripts keep working
+	deprecatedStrict bool
+	deprecatedUnused bool
+	showVersion      bool
 }
 
 // Allow dependency injection for testing.
 type analyzerClient interface {
 	Analyze(*analyzer.Upgrade) (*analyzer.Result, error)
-	FindUnusedDependencies() ([]string, error)
 }
 
 var (
@@ -116,10 +116,10 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.markdownOutput, "markdown", false, "Output results as GitHub-flavored Markdown (for PR comments)")
 	flag.StringVar(&cfg.listUpgrades, "list-upgrades", "",
 		"Print module@version for each direct dependency whose version differs between\nthe project's go.mod and the given go.mod, then exit")
-	flag.BoolVar(&cfg.strict, "strict", false, "Exit non-zero on warnings (not just errors)")
-	flag.BoolVar(&cfg.unused, "unused", false, "Report unused dependencies after upgrade")
 	flag.BoolVar(&cfg.verbose, "v", false, "Verbose output")
 	flag.BoolVar(&cfg.showVersion, "version", false, "Show version information")
+	flag.BoolVar(&cfg.deprecatedStrict, "strict", false, "Deprecated, has no effect: no check produces warnings any more")
+	flag.BoolVar(&cfg.deprecatedUnused, "unused", false, "Deprecated, has no effect: use 'go mod tidy' to drop unused dependencies")
 
 	flag.Usage = func() {
 		fmt.Fprintf(stderrWriter, "Usage: go-semver-audit [options]\n\n")
@@ -132,7 +132,7 @@ func parseFlags() config {
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -list-upgrades /tmp/pr-head/go.mod\n")
 		fmt.Fprintf(stderrWriter, "\nExit codes:\n")
 		fmt.Fprintf(stderrWriter, "  %d  no breaking changes\n", exitOK)
-		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected (or warnings, with -strict)\n", exitBreaking)
+		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected\n", exitBreaking)
 		fmt.Fprintf(stderrWriter, "  %d  the analysis could not be completed\n", exitError)
 	}
 
@@ -175,6 +175,8 @@ func run(cfg config) error {
 		return fmt.Errorf("use only one of -json, -html or -markdown")
 	}
 
+	warnDeprecatedFlags(cfg)
+
 	// Parse the upgrade specification
 	moduleUpgrade, err := parseUpgradeFn(cfg.upgrade)
 	if err != nil {
@@ -199,16 +201,6 @@ func run(cfg config) error {
 		return fmt.Errorf("analysis failed: %w", err)
 	}
 
-	// Check for unused dependencies if requested
-	if cfg.unused {
-		unused, err := a.FindUnusedDependencies()
-		if err != nil && cfg.verbose {
-			fmt.Fprintf(stderrWriter, "Warning: failed to detect unused dependencies: %v\n", err)
-		} else {
-			result.UnusedDeps = unused
-		}
-	}
-
 	// Generate report
 	var output string
 	switch {
@@ -228,7 +220,7 @@ func run(cfg config) error {
 	fmt.Fprint(stdoutWriter, output)
 
 	// Determine exit code
-	exitCode := determineExitCode(result, cfg.strict)
+	exitCode := determineExitCode(result)
 	if exitCode != 0 {
 		exitFunc(exitCode)
 		return nil
@@ -237,16 +229,22 @@ func run(cfg config) error {
 	return nil
 }
 
-func determineExitCode(result *analyzer.Result, strict bool) int {
-	// Exit non-zero if there are breaking changes
+func determineExitCode(result *analyzer.Result) int {
 	if result.HasBreakingChanges() {
 		return exitBreaking
 	}
-
-	// In strict mode, exit non-zero if there are any warnings
-	if strict && result.HasWarnings() {
-		return exitBreaking
-	}
-
 	return exitOK
+}
+
+// warnDeprecatedFlags tells users of removed features that their flags no
+// longer do anything. The flags are still accepted so scripts don't start
+// failing with "flag provided but not defined"; they can be removed in a
+// later release.
+func warnDeprecatedFlags(cfg config) {
+	if cfg.deprecatedUnused {
+		fmt.Fprintln(stderrWriter, "Warning: -unused is deprecated and has no effect; use 'go mod tidy' to drop unused dependencies")
+	}
+	if cfg.deprecatedStrict {
+		fmt.Fprintln(stderrWriter, "Warning: -strict is deprecated and has no effect; no check produces warnings any more")
+	}
 }

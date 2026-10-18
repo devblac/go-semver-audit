@@ -156,21 +156,6 @@ func TestFormatText(t *testing.T) {
 				"Added Symbols",
 			},
 		},
-		{
-			name: "unused dependencies",
-			result: &analyzer.Result{
-				Module:     "github.com/example/lib",
-				OldVersion: "v1.0.0",
-				NewVersion: "v1.1.0",
-				Changes:    &analyzer.Diff{},
-				UnusedDeps: []string{"github.com/unused/dep"},
-			},
-			verbose: false,
-			want: []string{
-				"Unused Dependencies",
-				"github.com/unused/dep",
-			},
-		},
 	}
 
 	for _, tt := range tests {

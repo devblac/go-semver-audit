@@ -18,79 +18,37 @@ func TestDetermineExitCode(t *testing.T) {
 	tests := []struct {
 		name   string
 		result *analyzer.Result
-		strict bool
 		want   int
 	}{
 		{
-			name: "no changes",
-			result: &analyzer.Result{
-				Changes: &analyzer.Diff{},
-			},
-			strict: false,
-			want:   0,
+			name:   "no changes",
+			result: &analyzer.Result{Changes: &analyzer.Diff{}},
+			want:   exitOK,
 		},
 		{
 			name: "breaking changes",
 			result: &analyzer.Result{
 				Changes: &analyzer.Diff{
-					Removed: []analyzer.RemovedSymbol{
-						{Name: "OldFunc", Type: "function"},
-					},
+					Removed: []analyzer.RemovedSymbol{{Name: "OldFunc", Type: "function"}},
 				},
 			},
-			strict: false,
-			want:   1,
+			want: exitBreaking,
 		},
 		{
-			name: "additions non-strict",
+			// Added symbols are informational and never fail the run
+			name: "additions only",
 			result: &analyzer.Result{
 				Changes: &analyzer.Diff{
-					Added: []analyzer.AddedSymbol{
-						{Name: "NewFunc", Type: "function"},
-					},
+					Added: []analyzer.AddedSymbol{{Name: "NewFunc", Type: "function"}},
 				},
 			},
-			strict: false,
-			want:   0,
-		},
-		{
-			// Added symbols are informational: they must not trip -strict,
-			// otherwise the flag fails on every upgrade
-			name: "additions strict",
-			result: &analyzer.Result{
-				Changes: &analyzer.Diff{
-					Added: []analyzer.AddedSymbol{
-						{Name: "NewFunc", Type: "function"},
-					},
-				},
-			},
-			strict: true,
-			want:   0,
-		},
-		{
-			name: "unused dependencies non-strict",
-			result: &analyzer.Result{
-				Changes:    &analyzer.Diff{},
-				UnusedDeps: []string{"github.com/unused/dep"},
-			},
-			strict: false,
-			want:   0,
-		},
-		{
-			name: "unused dependencies strict",
-			result: &analyzer.Result{
-				Changes:    &analyzer.Diff{},
-				UnusedDeps: []string{"github.com/unused/dep"},
-			},
-			strict: true,
-			want:   1,
+			want: exitOK,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := determineExitCode(tt.result, tt.strict)
-			if got != tt.want {
+			if got := determineExitCode(tt.result); got != tt.want {
 				t.Errorf("determineExitCode() = %v, want %v", got, tt.want)
 			}
 		})
@@ -182,21 +140,16 @@ func TestMain_AnalysisFailureExitsWithErrorCode(t *testing.T) {
 	}
 }
 
-func TestRun_GeneratesTextReportWithUnusedDeps(t *testing.T) {
+func TestRun_GeneratesTextReport(t *testing.T) {
 	restore := stubGlobals()
 	defer restore()
 
 	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
 	stdoutWriter = stdout
-	stderrWriter = stderr
+	stderrWriter = &bytes.Buffer{}
 
 	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
-		return &analyzer.Upgrade{
-			Module:     "github.com/example/mod",
-			OldVersion: "v1.0.0",
-			NewVersion: "v1.1.0",
-		}, nil
+		return &analyzer.Upgrade{Module: "github.com/example/mod", NewVersion: "v1.1.0"}, nil
 	}
 
 	fakeAnalyzer := &stubAnalyzer{
@@ -206,42 +159,79 @@ func TestRun_GeneratesTextReportWithUnusedDeps(t *testing.T) {
 			NewVersion: "v1.1.0",
 			Changes:    &analyzer.Diff{},
 		},
-		unused: []string{"github.com/unused/dep"},
 	}
 	newAnalyzerFn = func(path string) (analyzerClient, error) {
 		fakeAnalyzer.projectPath = path
 		return fakeAnalyzer, nil
 	}
-
 	formatTextFn = func(res *analyzer.Result, verbose bool) (string, error) {
 		return "text report\n", nil
 	}
 
-	cfg := config{
-		projectPath: "testdata/userproject",
-		upgrade:     "github.com/example/mod@v1.1.0",
-		jsonOutput:  false,
-		strict:      false,
-		unused:      true,
-		verbose:     true,
-	}
-
-	if err := run(cfg); err != nil {
+	if err := run(config{projectPath: "testdata/userproject", upgrade: "github.com/example/mod@v1.1.0"}); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
 
 	if !strings.Contains(stdout.String(), "text report") {
 		t.Fatalf("expected text report, got %q", stdout.String())
 	}
-	if fakeAnalyzer.projectPath == "" {
-		t.Fatalf("expected analyzer to receive project path")
+	if fakeAnalyzer.projectPath != "testdata/userproject" {
+		t.Fatalf("expected analyzer to receive the project path, got %q", fakeAnalyzer.projectPath)
 	}
 	if len(fakeAnalyzer.analyzeCalls) != 1 {
 		t.Fatalf("expected one analyze call, got %d", len(fakeAnalyzer.analyzeCalls))
 	}
 }
 
-func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
+func TestRun_DeprecatedFlagsWarnAndHaveNoEffect(t *testing.T) {
+	restore := stubGlobals()
+	defer restore()
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	stdoutWriter = stdout
+	stderrWriter = stderr
+
+	exitCode := -1
+	exitFunc = func(code int) { exitCode = code }
+
+	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+		return &analyzer.Upgrade{Module: "example.com/mod", NewVersion: "v1.1.0"}, nil
+	}
+	newAnalyzerFn = func(path string) (analyzerClient, error) {
+		return &stubAnalyzer{analyzeResult: &analyzer.Result{
+			Module: "example.com/mod",
+			// -strict used to fail on added symbols
+			Changes: &analyzer.Diff{Added: []analyzer.AddedSymbol{{Name: "New", Type: "function"}}},
+		}}, nil
+	}
+	formatJSONFn = func(res *analyzer.Result) (string, error) { return `{"report":true}`, nil }
+
+	cfg := config{
+		upgrade:          "example.com/mod@v1.1.0",
+		jsonOutput:       true,
+		deprecatedStrict: true,
+		deprecatedUnused: true,
+	}
+	if err := run(cfg); err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+
+	if exitCode != -1 {
+		t.Fatalf("deprecated flags must not change the exit code, got %d", exitCode)
+	}
+	for _, flagName := range []string{"-unused", "-strict"} {
+		if !strings.Contains(stderr.String(), flagName+" is deprecated and has no effect") {
+			t.Errorf("expected a deprecation warning for %s on stderr, got %q", flagName, stderr.String())
+		}
+	}
+	// Warnings go to stderr so JSON on stdout stays machine-readable
+	if stdout.String() != `{"report":true}` {
+		t.Errorf("stdout = %q, want only the JSON report", stdout.String())
+	}
+}
+
+func TestRun_JSONBreakingChangesExitOne(t *testing.T) {
 	restore := stubGlobals()
 	defer restore()
 
@@ -251,24 +241,16 @@ func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
 	stderrWriter = stderr
 
 	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
-		return &analyzer.Upgrade{
-			Module:     "github.com/example/mod",
-			OldVersion: "v1.0.0",
-			NewVersion: "v2.0.0",
-		}, nil
-	}
-
-	fakeAnalyzer := &stubAnalyzer{
-		analyzeResult: &analyzer.Result{
-			Module:     "github.com/example/mod",
-			Changes:    &analyzer.Diff{Added: []analyzer.AddedSymbol{{Name: "New", Type: "func"}}},
-			UnusedDeps: []string{"github.com/unused/dep"},
-		},
+		return &analyzer.Upgrade{Module: "github.com/example/mod", NewVersion: "v2.0.0"}, nil
 	}
 	newAnalyzerFn = func(path string) (analyzerClient, error) {
-		return fakeAnalyzer, nil
+		return &stubAnalyzer{analyzeResult: &analyzer.Result{
+			Module: "github.com/example/mod",
+			Changes: &analyzer.Diff{
+				Removed: []analyzer.RemovedSymbol{{Name: "mod.Old", Type: "function"}},
+			},
+		}}, nil
 	}
-
 	formatJSONFn = func(res *analyzer.Result) (string, error) {
 		return `{"report":true}`, nil
 	}
@@ -276,16 +258,7 @@ func TestRun_JSONStrictExitsOnWarnings(t *testing.T) {
 	var exitCode int
 	exitFunc = func(code int) { exitCode = code }
 
-	cfg := config{
-		projectPath: "testdata/userproject",
-		upgrade:     "github.com/example/mod@v2.0.0",
-		jsonOutput:  true,
-		strict:      true,
-		unused:      false,
-		verbose:     false,
-	}
-
-	if err := run(cfg); err != nil {
+	if err := run(config{upgrade: "github.com/example/mod@v2.0.0", jsonOutput: true}); err != nil {
 		t.Fatalf("run returned error: %v", err)
 	}
 
@@ -496,48 +469,6 @@ func TestRun_ParseUpgradeError(t *testing.T) {
 	}
 }
 
-func TestRun_LogsWarningOnUnusedDepsErrorVerbose(t *testing.T) {
-	restore := stubGlobals()
-	defer restore()
-
-	stderr := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
-	stderrWriter = stderr
-	stdoutWriter = stdout
-
-	parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
-		return &analyzer.Upgrade{Module: "example.com/mod", NewVersion: "v1.2.0"}, nil
-	}
-
-	fakeAnalyzer := &stubAnalyzer{
-		analyzeResult: &analyzer.Result{
-			Module:  "example.com/mod",
-			Changes: &analyzer.Diff{},
-		},
-		unusedErr: errors.New("boom"),
-	}
-	newAnalyzerFn = func(path string) (analyzerClient, error) { return fakeAnalyzer, nil }
-	formatTextFn = func(res *analyzer.Result, verbose bool) (string, error) { return "ok\n", nil }
-
-	cfg := config{
-		projectPath: ".",
-		upgrade:     "example.com/mod@v1.2.0",
-		unused:      true,
-		verbose:     true,
-	}
-
-	if err := run(cfg); err != nil {
-		t.Fatalf("run returned error: %v", err)
-	}
-
-	if !strings.Contains(stderr.String(), "failed to detect unused dependencies") {
-		t.Fatalf("expected warning, got %q", stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "ok") {
-		t.Fatalf("expected report output, got %q", stdout.String())
-	}
-}
-
 func TestParseFlags(t *testing.T) {
 	// Save original command line args
 	oldArgs := flag.CommandLine
@@ -555,11 +486,8 @@ func TestParseFlags(t *testing.T) {
 	if cfg.jsonOutput {
 		t.Errorf("Expected jsonOutput false, got true")
 	}
-	if cfg.strict {
-		t.Errorf("Expected strict false, got true")
-	}
-	if cfg.unused {
-		t.Errorf("Expected unused false, got true")
+	if cfg.deprecatedStrict || cfg.deprecatedUnused {
+		t.Errorf("Expected deprecated flags to default to false")
 	}
 	if cfg.verbose {
 		t.Errorf("Expected verbose false, got true")
@@ -576,8 +504,6 @@ func TestConfigStruct(t *testing.T) {
 		upgrade:     "github.com/example/module@v1.0.0",
 		jsonOutput:  true,
 		htmlOutput:  true,
-		strict:      true,
-		unused:      true,
 		verbose:     true,
 		showVersion: false,
 	}
@@ -594,12 +520,6 @@ func TestConfigStruct(t *testing.T) {
 	if !cfg.htmlOutput {
 		t.Errorf("Expected htmlOutput true, got false")
 	}
-	if !cfg.strict {
-		t.Errorf("Expected strict true, got false")
-	}
-	if !cfg.unused {
-		t.Errorf("Expected unused true, got false")
-	}
 	if !cfg.verbose {
 		t.Errorf("Expected verbose true, got false")
 	}
@@ -612,18 +532,12 @@ type stubAnalyzer struct {
 	analyzeResult *analyzer.Result
 	analyzeErr    error
 	analyzeCalls  []*analyzer.Upgrade
-	unused        []string
-	unusedErr     error
 	projectPath   string
 }
 
 func (s *stubAnalyzer) Analyze(upgrade *analyzer.Upgrade) (*analyzer.Result, error) {
 	s.analyzeCalls = append(s.analyzeCalls, upgrade)
 	return s.analyzeResult, s.analyzeErr
-}
-
-func (s *stubAnalyzer) FindUnusedDependencies() ([]string, error) {
-	return s.unused, s.unusedErr
 }
 
 func stubGlobals() func() {

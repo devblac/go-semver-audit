@@ -107,15 +107,6 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 		b.WriteString("\n")
 	}
 
-	// Report unused dependencies
-	if len(result.UnusedDeps) > 0 {
-		b.WriteString("Unused Dependencies:\n")
-		for _, dep := range result.UnusedDeps {
-			b.WriteString(fmt.Sprintf("  - %s\n", dep))
-		}
-		b.WriteString("\n")
-	}
-
 	// Summary
 	if hasBreaking {
 		b.WriteString(fmt.Sprintf("Summary: %d breaking change(s) affecting %d location(s) in your code.\n",
