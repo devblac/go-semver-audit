@@ -8,7 +8,7 @@ This document summarizes the continuous integration and testing infrastructure a
 
 1. **`.github/workflows/ci.yml`** - GitHub Actions CI workflow
    - Runs tests across multiple OS (Ubuntu, Windows, macOS)
-   - Tests with Go 1.24 and 1.27
+   - Tests with Go 1.26 and 1.27
    - Includes lint, test, and build jobs
    - Uploads coverage to Codecov
 
@@ -140,7 +140,7 @@ make clean
 
 1. **On Every Push to main/develop**:
    - Runs all tests on Linux, Windows, macOS
-   - Tests with Go 1.24 and 1.27
+   - Tests with Go 1.26 and 1.27
    - Runs linters
    - Verifies build
 

@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version queries such as `@latest` are resolved to the concrete version analyzed
 
 ### Changed
-- Minimum Go version raised to 1.24 (was 1.21) to pick up `golang.org/x/tools` v0.39.0, required for the module-loading fix above and needed to type-check dependencies built with newer Go toolchains
-- CI now tests against Go 1.24 and 1.27 instead of 1.21 and 1.22
+- Minimum Go version raised to 1.26 (was 1.21) to pick up `golang.org/x/tools` v0.52.0. Older x/tools releases cannot read the export data written by newer Go compilers ("export data version 4 is greater than maximum supported version 2" under Go 1.27), so the analysis failed for any project built with the current Go release. 1.26 and 1.27 are the supported Go releases
+- CI now tests against Go 1.26 and 1.27 instead of 1.21 and 1.22
 
 ### Added
 - Initial implementation of go-semver-audit CLI tool
