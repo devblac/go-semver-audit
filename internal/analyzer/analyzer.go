@@ -3,7 +3,9 @@ package analyzer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go/build"
 	"go/types"
 	"os"
 	"os/exec"
@@ -250,6 +252,27 @@ func writeModFile(module, moduleDir, workDir string) (string, error) {
 	return modFile, err
 }
 
+// hasGoPackage reports whether dir holds an importable package in this version
+// of a module. The directory existing is not enough: a module's root package
+// can be removed while its subpackages keep the directory alive, and a package
+// directory can be left with only tests or files excluded by build constraints.
+// Other problems are left for packages.Load to report.
+func hasGoPackage(dir string) bool {
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return false
+	}
+
+	pkg, err := build.ImportDir(dir, 0)
+	var noGo *build.NoGoError
+	if errors.As(err, &noGo) {
+		return false
+	}
+	if err == nil && len(pkg.GoFiles)+len(pkg.CgoFiles) == 0 {
+		return false
+	}
+	return true
+}
+
 // loadModuleAPI loads the exported API surface of the given packages of
 // module@version. Packages that do not exist in that version are skipped, so
 // their symbols show up as removed when diffed against a version that has them.
@@ -277,7 +300,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 	var patterns []string
 	for _, pkgPath := range pkgPaths {
 		rel := strings.TrimPrefix(strings.TrimPrefix(pkgPath, module), "/")
-		if fi, err := os.Stat(filepath.Join(info.Dir, filepath.FromSlash(rel))); err != nil || !fi.IsDir() {
+		if !hasGoPackage(filepath.Join(info.Dir, filepath.FromSlash(rel))) {
 			continue
 		}
 		pattern := "."
