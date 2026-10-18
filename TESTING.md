@@ -79,7 +79,7 @@ The project uses GitHub Actions for CI. The workflow (`.github/workflows/ci.yml`
 The CI pipeline includes:
 
 #### Test Job
-- **Matrix**: Tests across multiple OS (Ubuntu, Windows, macOS) and Go versions (1.24, 1.27)
+- **Matrix**: Tests across multiple OS (Ubuntu, Windows, macOS) and Go versions (1.26, 1.27)
 - **Steps**:
   1. Checkout code
   2. Set up Go
