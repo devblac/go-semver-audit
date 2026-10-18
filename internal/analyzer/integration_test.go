@@ -265,3 +265,79 @@ func fileURL(path string) string {
 	}
 	return "file://" + path
 }
+
+// TestAnalyzeRootPackageRemoved covers a module whose root package disappears
+// in the new version while subpackages remain: the root directory still
+// exists, but holds no Go files any more. Its symbols must be reported as
+// removed rather than failing the analysis.
+func TestAnalyzeRootPackageRemoved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	const libPath = "example.com/rootgone"
+	root := t.TempDir()
+	proxyDir := filepath.Join(root, "proxy")
+
+	publishModule(t, proxyDir, libPath, "v1.0.0", map[string]string{
+		"root.go":      "package rootgone\n\nfunc Hello() string { return \"hello\" }\n",
+		"util/util.go": "package util\n\nfunc Helper() string { return \"help\" }\n",
+	})
+	// v1.1.0 drops the root package; util and a non-Go file remain
+	publishModule(t, proxyDir, libPath, "v1.1.0", map[string]string{
+		"README.md":    "# rootgone\n",
+		"util/util.go": "package util\n\nfunc Helper() string { return \"help\" }\n",
+	})
+
+	projectDir := filepath.Join(root, "app")
+	writeFiles(t, projectDir, map[string]string{
+		"go.mod":  "module example.com/app\n\ngo 1.21\n\nrequire " + libPath + " v1.0.0\n",
+		"main.go": "package main\n\nimport \"example.com/rootgone\"\n\nfunc main() { _ = rootgone.Hello() }\n",
+	})
+
+	useOfflineProxy(t, proxyDir)
+
+	a, err := New(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.Analyze(&Upgrade{Module: libPath, NewVersion: "v1.1.0"})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v (a removed root package must be reported, not fail the analysis)", err)
+	}
+
+	if len(result.Changes.Removed) != 1 {
+		t.Fatalf("expected the root package's Hello to be reported as removed, got %+v", result.Changes.Removed)
+	}
+	if removed := result.Changes.Removed[0]; !strings.HasSuffix(removed.Name, "Hello") || len(removed.UsedIn) != 1 {
+		t.Fatalf("unexpected removal %+v", removed)
+	}
+}
+
+// useOfflineProxy points the go command at a file-based GOPROXY and a private,
+// throwaway module cache for the rest of the test.
+func useOfflineProxy(t *testing.T, proxyDir string) {
+	t.Helper()
+
+	modCache, err := os.MkdirTemp("", "go-semver-audit-modcache-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		// The module cache is read-only; let the go command remove it
+		clean := exec.Command("go", "clean", "-modcache")
+		clean.Env = append(os.Environ(), "GOMODCACHE="+modCache)
+		_ = clean.Run()
+		os.RemoveAll(modCache)
+	})
+
+	t.Setenv("GOMODCACHE", modCache)
+	t.Setenv("GOPROXY", fileURL(proxyDir))
+	t.Setenv("GOSUMDB", "off")
+	t.Setenv("GOFLAGS", "-mod=mod")
+	t.Setenv("GOWORK", "off")
+	t.Setenv("GOTOOLCHAIN", "local")
+}
