@@ -179,6 +179,8 @@ func TestFindUsage(t *testing.T) {
 
 func TestLoadModuleAPI(t *testing.T) {
 	moduleDir := t.TempDir()
+	// The package must exist in the downloaded module, i.e. contain Go files
+	writeFiles(t, moduleDir, map[string]string{"lib.go": "package lib\n"})
 	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
 		return &moduleInfo{Path: module, Version: "v1.0.0", Dir: moduleDir}, nil
 	})
@@ -253,6 +255,9 @@ func TestAnalyzeWithMockLoader(t *testing.T) {
 	})
 
 	oldDir, newDir := t.TempDir(), t.TempDir()
+	for _, dir := range []string{oldDir, newDir} {
+		writeFiles(t, dir, map[string]string{"lib.go": "package lib\n"})
+	}
 	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
 		switch version {
 		case "v1.0.0":
@@ -397,6 +402,7 @@ func mockGoModDownload(fn func(module, version string) (*moduleInfo, error)) fun
 
 func TestLoadModuleAPIFailsOnPackageErrors(t *testing.T) {
 	moduleDir := t.TempDir()
+	writeFiles(t, moduleDir, map[string]string{"lib.go": "package lib\n"})
 	restoreDownload := mockGoModDownload(func(module, version string) (*moduleInfo, error) {
 		return &moduleInfo{Path: module, Version: version, Dir: moduleDir}, nil
 	})

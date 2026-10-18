@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Module versions are now fetched with `go mod download` and loaded from the module cache. Previously `packages.Load("module@version")` always failed silently, so every upgrade was reported as having no breaking changes
 - Analysis fails loudly when a dependency package cannot be type-checked instead of diffing an empty API
-- Packages removed in the new version are reported as removed symbols
+- Packages removed in the new version are reported as removed symbols, including a module's root package that disappears while its subpackages remain
 - Version queries such as `@latest` are resolved to the concrete version analyzed
 
 ### Changed
