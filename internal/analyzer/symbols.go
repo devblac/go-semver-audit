@@ -1,6 +1,9 @@
 package analyzer
 
-import "strings"
+import (
+	"go/types"
+	"strings"
+)
 
 // Symbols are matched between the two API versions, and against the project's
 // usage, by a key that includes the package path and - for methods - the
@@ -20,6 +23,18 @@ func symbolKey(pkgPath, name string) string {
 // methodSymbolKey returns the key for a method on a named type.
 func methodSymbolKey(pkgPath, recv, name string) string {
 	return pkgPath + "." + recv + "." + name
+}
+
+// interfaceMethodString renders an interface method as "Name(params) results",
+// which is what interface methods are compared and reported by.
+//
+// types.Func.String() would prefix the receiver instead, e.g.
+// "func (example.com/kvstore.Iterator).Err() error". Besides being noisy, that
+// receiver is the embedded interface for promoted methods, so the same method
+// would read differently depending on whether a version declares it directly
+// or embeds it, and show up as removed and added at once.
+func interfaceMethodString(m *types.Func) string {
+	return m.Name() + strings.TrimPrefix(types.TypeString(m.Type(), nil), "func")
 }
 
 // displayName renders a symbol for reports, e.g. "slices.SortFunc" or

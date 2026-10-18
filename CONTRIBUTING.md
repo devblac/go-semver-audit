@@ -4,7 +4,7 @@ Thank you for your interest in contributing to go-semver-audit! This document pr
 
 ## Code of Conduct
 
-Be respectful, constructive, and professional in all interactions.
+This project follows a [Code of Conduct](CODE_OF_CONDUCT.md). By participating you agree to uphold it.
 
 ## How to Contribute
 
@@ -187,15 +187,17 @@ Closes #123
 
 ```
 go-semver-audit/
-├── cmd/
-│   └── go-semver-audit/     # CLI entrypoint
+├── cmd/go-semver-audit/     # CLI entrypoint: flags, exit codes; no analysis logic
 ├── internal/
-│   ├── analyzer/            # Core analysis logic
-│   └── report/              # Output formatting
-├── testdata/                # Test fixtures
-├── Makefile                 # Build automation
-└── README.md
+│   ├── analyzer/            # Loads the project and both module versions, diffs their APIs
+│   ├── gomod/               # Compares go.mod files (-list-upgrades)
+│   └── report/              # Text, JSON, HTML and Markdown output; formatting only
+├── action.yml               # GitHub Action definition
+├── action/run.sh            # GitHub Action logic (thin wrapper around the CLI)
+└── testdata/                # Illustrative sources, not loaded by tests
 ```
+
+Everything lives under `internal/`, so nothing is importable by other modules and the CLI is the only public interface. Keep logic in Go where it can be unit tested; the action script should stay a thin orchestration layer.
 
 ## Areas for Contribution
 
