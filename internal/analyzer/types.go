@@ -38,6 +38,7 @@ func (r *Result) HasWarnings() bool {
 
 // API represents the exported API surface of a module
 type API struct {
+	Version    string
 	Funcs      map[string]*Function
 	Types      map[string]*Type
 	Interfaces map[string]*Interface

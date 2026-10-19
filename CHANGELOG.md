@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Module versions are now fetched with `go mod download` and loaded from the module cache. Previously `packages.Load("module@version")` always failed silently, so every upgrade was reported as having no breaking changes
+- Analysis fails loudly when a dependency package cannot be type-checked instead of diffing an empty API
+- Packages removed in the new version are reported as removed symbols, including a module's root package that disappears while its subpackages remain
+- Version queries such as `@latest` are resolved to the concrete version analyzed
+
+### Changed
+- Minimum Go version raised to 1.26 (was 1.21) to pick up `golang.org/x/tools` v0.52.0. Older x/tools releases cannot read the export data written by newer Go compilers ("export data version 4 is greater than maximum supported version 2" under Go 1.27), so the analysis failed for any project built with the current Go release. 1.26 and 1.27 are the supported Go releases
+- CI now tests against Go 1.26 and 1.27 instead of 1.21 and 1.22
+
 ### Added
 - Initial implementation of go-semver-audit CLI tool
 - API surface analysis for Go module dependencies
