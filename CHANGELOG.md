@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- GitHub Action (`uses: devblac/go-semver-audit@...`) that audits every direct dependency a pull request upgrades - such as a Dependabot or Renovate PR - and posts the result as a PR comment, updated in place on later pushes. Also writes a job summary, exposes `breaking`/`upgrades`/`report` outputs, and can fail the check on breaking changes. Analysis runs against the PR's base commit, where the project is known to build
+- GitHub Action (`uses: devblac/go-semver-audit@...`) that audits every direct dependency a pull request upgrades - such as a Dependabot or Renovate PR - and posts the result as a PR comment, updated in place on later pushes. Also writes a job summary, exposes `breaking`/`upgrades`/`report` outputs, and can fail the check on breaking changes. Analysis runs against the PR's base commit, where the project is known to build. In a monorepo each module (`working-directory`) keeps its own comment, and when a later push leaves no upgrades the earlier comment is updated to say so
 - `-markdown` output: a GitHub-flavored Markdown report for pull request comments and job summaries, with a table of breaking changes and collapsible signature details
 - `-list-upgrades <go.mod>`: prints `module@version` for each direct dependency whose version differs between the project's go.mod and the given one, e.g. the head of a Dependabot or Renovate PR. Indirect requirements and `/vN` module path changes are skipped
 
