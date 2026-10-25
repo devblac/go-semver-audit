@@ -467,3 +467,44 @@ func TestDiffAPIsMethodRemoval(t *testing.T) {
 		}
 	})
 }
+
+func TestPackageQualifier(t *testing.T) {
+	tests := []struct {
+		module, pkgPath, pkgName, want string
+	}{
+		{"example.com/lib", "example.com/lib", "lib", "lib"},
+		{"example.com/api", "example.com/api/foo/v1", "v1", "foo/v1"},
+		{"example.com/api", "example.com/api/bar/v1", "v1", "bar/v1"},
+		{"golang.org/x/exp", "golang.org/x/exp/slices", "slices", "slices"},
+		{"example.com/lib/v2", "example.com/lib/v2/sub", "sub", "sub"},
+		// A path that merely shares a prefix is not inside the module
+		{"example.com/lib", "example.com/library", "library", "library"},
+	}
+	for _, tt := range tests {
+		if got := packageQualifier(tt.module, tt.pkgPath, tt.pkgName); got != tt.want {
+			t.Errorf("packageQualifier(%q, %q, %q) = %q, want %q", tt.module, tt.pkgPath, tt.pkgName, got, tt.want)
+		}
+	}
+}
+
+func TestDiffAPIsOrdersSameDisplayNameByPackage(t *testing.T) {
+	// Two symbols that render identically still get a stable order
+	oldAPI := &API{
+		Funcs: map[string]*Function{
+			"example.com/a/v1.Config": {Name: "Config", PkgName: "v1", PkgPath: "example.com/a/v1", Signature: "func()"},
+			"example.com/b/v1.Config": {Name: "Config", PkgName: "v1", PkgPath: "example.com/b/v1", Signature: "func()"},
+		},
+	}
+	newAPI := &API{Funcs: map[string]*Function{}}
+	usage := &Usage{Symbols: map[string][]Location{
+		"example.com/a/v1.Config": {{File: "main.go", Line: 1}},
+		"example.com/b/v1.Config": {{File: "main.go", Line: 2}},
+	}}
+
+	for i := 0; i < 20; i++ {
+		diff := diffAPIs(oldAPI, newAPI, usage)
+		if len(diff.Removed) != 2 || diff.Removed[0].Package != "example.com/a/v1" || diff.Removed[1].Package != "example.com/b/v1" {
+			t.Fatalf("run %d: removed not ordered by package: %+v", i, diff.Removed)
+		}
+	}
+}
