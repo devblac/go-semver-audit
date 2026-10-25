@@ -22,6 +22,18 @@ func methodSymbolKey(pkgPath, recv, name string) string {
 	return pkgPath + "." + recv + "." + name
 }
 
+// packageQualifier is how a package is named in reports: its path relative to
+// the module root, which is unique within the module - api/foo/v1 and
+// api/bar/v1 are both "package v1", so package names alone would render both
+// as v1.Config. The module's root package has no relative path and uses its
+// package name, so the common cases read as before (slices.SortFunc).
+func packageQualifier(module, pkgPath, pkgName string) string {
+	if rel := strings.TrimPrefix(pkgPath, module+"/"); rel != pkgPath && rel != "" {
+		return rel
+	}
+	return pkgName
+}
+
 // displayName renders a symbol for reports, e.g. "slices.SortFunc" or
 // "lib.Config.Validate". Full package paths are too long to read in a report,
 // and bare names are ambiguous once more than one package is involved.

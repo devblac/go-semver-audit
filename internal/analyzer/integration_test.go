@@ -333,3 +333,59 @@ func useOfflineProxy(t *testing.T, proxyDir string) {
 	t.Setenv("GOWORK", "off")
 	t.Setenv("GOTOOLCHAIN", "local")
 }
+
+// TestAnalyzeSamePackageNames covers two packages that share a package name -
+// example.com/api/foo/v1 and example.com/api/bar/v1 are both "package v1".
+// Reports must tell them apart.
+func TestAnalyzeSamePackageNames(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain not available")
+	}
+
+	const libPath = "example.com/api"
+	root := t.TempDir()
+	proxyDir := filepath.Join(root, "proxy")
+
+	publishModule(t, proxyDir, libPath, "v1.0.0", map[string]string{
+		"foo/v1/foo.go": "package v1\n\nfunc Config() string { return \"foo\" }\n",
+		"bar/v1/bar.go": "package v1\n\nfunc Config() string { return \"bar\" }\n",
+	})
+	// Both Config functions are removed in the new version
+	publishModule(t, proxyDir, libPath, "v1.1.0", map[string]string{
+		"foo/v1/foo.go": "package v1\n\nfunc Other() string { return \"foo\" }\n",
+		"bar/v1/bar.go": "package v1\n\nfunc Other() string { return \"bar\" }\n",
+	})
+
+	projectDir := filepath.Join(root, "app")
+	writeFiles(t, projectDir, map[string]string{
+		"go.mod": "module example.com/app\n\ngo 1.21\n\nrequire " + libPath + " v1.0.0\n",
+		"main.go": "package main\n\nimport (\n\tbarv1 \"example.com/api/bar/v1\"\n\tfoov1 \"example.com/api/foo/v1\"\n)\n\n" +
+			"func main() { _ = foov1.Config() + barv1.Config() }\n",
+	})
+
+	useOfflineProxy(t, proxyDir)
+
+	a, err := New(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := a.Analyze(&Upgrade{Module: libPath, NewVersion: "v1.1.0"})
+	if err != nil {
+		t.Fatalf("Analyze() error = %v", err)
+	}
+
+	var got []string
+	for _, r := range result.Changes.Removed {
+		got = append(got, r.Name+" ("+r.Package+")")
+	}
+	want := []string{
+		"bar/v1.Config (example.com/api/bar/v1)",
+		"foo/v1.Config (example.com/api/foo/v1)",
+	}
+	if strings.Join(got, ", ") != strings.Join(want, ", ") {
+		t.Fatalf("removed = %v, want %v", got, want)
+	}
+}
