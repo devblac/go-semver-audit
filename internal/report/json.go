@@ -22,14 +22,16 @@ type JSONReport struct {
 
 // RemovedItem represents a removed symbol in JSON
 type RemovedItem struct {
-	Name   string     `json:"name"`
-	Type   string     `json:"type"`
-	UsedIn []Location `json:"used_in,omitempty"`
+	Name    string     `json:"name"`
+	Package string     `json:"package,omitempty"`
+	Type    string     `json:"type"`
+	UsedIn  []Location `json:"used_in,omitempty"`
 }
 
 // ChangedItem represents a changed signature in JSON
 type ChangedItem struct {
 	Name         string     `json:"name"`
+	Package      string     `json:"package,omitempty"`
 	OldSignature string     `json:"old_signature"`
 	NewSignature string     `json:"new_signature"`
 	UsedIn       []Location `json:"used_in,omitempty"`
@@ -38,6 +40,7 @@ type ChangedItem struct {
 // InterfaceChangeItem represents interface changes in JSON
 type InterfaceChangeItem struct {
 	Name           string     `json:"name"`
+	Package        string     `json:"package,omitempty"`
 	AddedMethods   []string   `json:"added_methods,omitempty"`
 	RemovedMethods []string   `json:"removed_methods,omitempty"`
 	UsedIn         []Location `json:"used_in,omitempty"`
@@ -45,8 +48,9 @@ type InterfaceChangeItem struct {
 
 // AddedItem represents an added symbol in JSON
 type AddedItem struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name    string `json:"name"`
+	Package string `json:"package,omitempty"`
+	Type    string `json:"type"`
 }
 
 // Location represents a source code location in JSON
@@ -69,8 +73,9 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 	// Convert removed symbols
 	for _, removed := range result.Changes.Removed {
 		item := RemovedItem{
-			Name: removed.Name,
-			Type: removed.Type,
+			Name:    removed.Name,
+			Package: removed.Package,
+			Type:    removed.Type,
 		}
 		for _, loc := range removed.UsedIn {
 			item.UsedIn = append(item.UsedIn, Location{
@@ -85,6 +90,7 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 	for _, changed := range result.Changes.Changed {
 		item := ChangedItem{
 			Name:         changed.Name,
+			Package:      changed.Package,
 			OldSignature: changed.OldSignature,
 			NewSignature: changed.NewSignature,
 		}
@@ -101,6 +107,7 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 	for _, iface := range result.Changes.InterfaceChanges {
 		item := InterfaceChangeItem{
 			Name:           iface.Name,
+			Package:        iface.Package,
 			AddedMethods:   iface.AddedMethods,
 			RemovedMethods: iface.RemovedMethods,
 		}
@@ -116,8 +123,9 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 	// Convert added symbols
 	for _, added := range result.Changes.Added {
 		report.Added = append(report.Added, AddedItem{
-			Name: added.Name,
-			Type: added.Type,
+			Name:    added.Name,
+			Package: added.Package,
+			Type:    added.Type,
 		})
 	}
 

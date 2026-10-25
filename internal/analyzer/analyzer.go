@@ -302,6 +302,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 		if pkg.Types == nil {
 			continue
 		}
+		qualifier := packageQualifier(module, pkg.PkgPath, pkg.Name)
 		scope := pkg.Types.Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
@@ -317,7 +318,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 					Signature:    sig.String(),
 					SignatureKey: signatureKey(sig),
 					PkgPath:      pkg.PkgPath,
-					PkgName:      pkg.Name,
+					PkgName:      qualifier,
 				}
 
 			case *types.TypeName:
@@ -340,7 +341,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 						Methods:    methods,
 						MethodKeys: methodKeys,
 						PkgPath:    pkg.PkgPath,
-						PkgName:    pkg.Name,
+						PkgName:    qualifier,
 					}
 				} else {
 					// Regular type
@@ -348,7 +349,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 						Name:    obj.Name(),
 						Kind:    named.Underlying().String(),
 						PkgPath: pkg.PkgPath,
-						PkgName: pkg.Name,
+						PkgName: qualifier,
 					}
 
 					// Add methods for this type
@@ -362,7 +363,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 								Signature:    sig.String(),
 								SignatureKey: signatureKey(sig),
 								PkgPath:      pkg.PkgPath,
-								PkgName:      pkg.Name,
+								PkgName:      qualifier,
 								IsMethod:     true,
 							}
 						}

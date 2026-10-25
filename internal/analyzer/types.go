@@ -45,7 +45,7 @@ type Function struct {
 	// parameter names (see signatureKey). Empty means compare Signature.
 	SignatureKey string
 	PkgPath      string
-	PkgName      string
+	PkgName      string // name in reports, see packageQualifier
 	IsMethod     bool
 }
 
@@ -75,7 +75,7 @@ type Type struct {
 	Name    string
 	Kind    string
 	PkgPath string
-	PkgName string
+	PkgName string // name in reports, see packageQualifier
 }
 
 // Display returns the report-friendly name of the type
@@ -91,7 +91,7 @@ type Interface struct {
 	// interfaceMethodKey). Nil means compare Methods.
 	MethodKeys []string
 	PkgPath    string
-	PkgName    string
+	PkgName    string // name in reports, see packageQualifier
 }
 
 // Display returns the report-friendly name of the interface
@@ -134,20 +134,23 @@ type Diff struct {
 
 // RemovedSymbol represents a symbol that was removed
 type RemovedSymbol struct {
-	Name   string
-	Type   string // "function", "type", "interface"
-	UsedIn []Location
+	Name    string
+	Package string // full import path; disambiguates and orders entries
+	Type    string // "function", "type", "interface"
+	UsedIn  []Location
 }
 
 // AddedSymbol represents a symbol that was added
 type AddedSymbol struct {
-	Name string
-	Type string
+	Name    string
+	Package string // full import path; disambiguates and orders entries
+	Type    string
 }
 
 // ChangedSignature represents a function/method with changed signature
 type ChangedSignature struct {
 	Name         string
+	Package      string // full import path; disambiguates and orders entries
 	OldSignature string
 	NewSignature string
 	UsedIn       []Location
@@ -156,6 +159,7 @@ type ChangedSignature struct {
 // InterfaceChange represents changes to an interface
 type InterfaceChange struct {
 	Name           string
+	Package        string // full import path; disambiguates and orders entries
 	AddedMethods   []string
 	RemovedMethods []string
 	ChangedMethods []string
