@@ -26,9 +26,10 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   oldFunc.Display(),
-					Type:   oldFunc.Kind(),
-					UsedIn: locations,
+					Name:    oldFunc.Display(),
+					Package: oldFunc.PkgPath,
+					Type:    oldFunc.Kind(),
+					UsedIn:  locations,
 				})
 			}
 			continue
@@ -40,6 +41,7 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 			if len(locations) > 0 {
 				diff.Changed = append(diff.Changed, ChangedSignature{
 					Name:         oldFunc.Display(),
+					Package:      oldFunc.PkgPath,
 					OldSignature: oldFunc.Signature,
 					NewSignature: newFunc.Signature,
 					UsedIn:       locations,
@@ -52,8 +54,9 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	for key, newFunc := range newAPI.Funcs {
 		if _, exists := oldAPI.Funcs[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: newFunc.Display(),
-				Type: newFunc.Kind(),
+				Name:    newFunc.Display(),
+				Package: newFunc.PkgPath,
+				Type:    newFunc.Kind(),
 			})
 		}
 	}
@@ -64,9 +67,10 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   oldType.Display(),
-					Type:   "type",
-					UsedIn: locations,
+					Name:    oldType.Display(),
+					Package: oldType.PkgPath,
+					Type:    "type",
+					UsedIn:  locations,
 				})
 			}
 		}
@@ -76,8 +80,9 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	for key, newType := range newAPI.Types {
 		if _, exists := oldAPI.Types[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: newType.Display(),
-				Type: "type",
+				Name:    newType.Display(),
+				Package: newType.PkgPath,
+				Type:    "type",
 			})
 		}
 	}
@@ -94,9 +99,10 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
-					Name:   oldIface.Display(),
-					Type:   "interface",
-					UsedIn: locations,
+					Name:    oldIface.Display(),
+					Package: oldIface.PkgPath,
+					Type:    "interface",
+					UsedIn:  locations,
 				})
 			}
 		}
@@ -106,8 +112,9 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 	for key, newIface := range newAPI.Interfaces {
 		if _, exists := oldAPI.Interfaces[key]; !exists {
 			diff.Added = append(diff.Added, AddedSymbol{
-				Name: newIface.Display(),
-				Type: "interface",
+				Name:    newIface.Display(),
+				Package: newIface.PkgPath,
+				Type:    "interface",
 			})
 		}
 	}
@@ -122,27 +129,38 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 // sortDiff orders every collection in a Diff so that repeated runs over the
 // same versions produce byte-identical reports.
 func sortDiff(diff *Diff) {
+	// Display names are unique within a module, but the full package path
+	// breaks any remaining tie so the order never depends on map iteration
 	sort.Slice(diff.Removed, func(i, j int) bool {
-		if diff.Removed[i].Name != diff.Removed[j].Name {
-			return diff.Removed[i].Name < diff.Removed[j].Name
-		}
-		return diff.Removed[i].Type < diff.Removed[j].Type
+		a, b := diff.Removed[i], diff.Removed[j]
+		return lessByKeys(a.Name, b.Name, a.Type, b.Type, a.Package, b.Package)
 	})
 
 	sort.Slice(diff.Added, func(i, j int) bool {
-		if diff.Added[i].Name != diff.Added[j].Name {
-			return diff.Added[i].Name < diff.Added[j].Name
-		}
-		return diff.Added[i].Type < diff.Added[j].Type
+		a, b := diff.Added[i], diff.Added[j]
+		return lessByKeys(a.Name, b.Name, a.Type, b.Type, a.Package, b.Package)
 	})
 
 	sort.Slice(diff.Changed, func(i, j int) bool {
-		return diff.Changed[i].Name < diff.Changed[j].Name
+		a, b := diff.Changed[i], diff.Changed[j]
+		return lessByKeys(a.Name, b.Name, a.Package, b.Package)
 	})
 
 	sort.Slice(diff.InterfaceChanges, func(i, j int) bool {
-		return diff.InterfaceChanges[i].Name < diff.InterfaceChanges[j].Name
+		a, b := diff.InterfaceChanges[i], diff.InterfaceChanges[j]
+		return lessByKeys(a.Name, b.Name, a.Package, b.Package)
 	})
+}
+
+// lessByKeys compares (a1, b1, a2, b2, ...) pairs in order, the first unequal
+// pair deciding
+func lessByKeys(pairs ...string) bool {
+	for i := 0; i+1 < len(pairs); i += 2 {
+		if pairs[i] != pairs[i+1] {
+			return pairs[i] < pairs[i+1]
+		}
+	}
+	return false
 }
 
 // typeExists reports whether a named type still exists in the given API,
@@ -187,6 +205,7 @@ func diffInterfaces(key string, oldIface, newIface *Interface, usage *Usage) *In
 	if (len(added) > 0 || len(removed) > 0) && len(usage.Symbols[key]) > 0 {
 		return &InterfaceChange{
 			Name:           oldIface.Display(),
+			Package:        oldIface.PkgPath,
 			AddedMethods:   added,
 			RemovedMethods: removed,
 			UsedIn:         usage.Symbols[key],
