@@ -28,15 +28,18 @@ func (r *Result) HasBreakingChanges() bool {
 		len(r.Changes.InterfaceChanges) > 0
 }
 
-// HasWarnings returns true if the result contains warnings
+// HasWarnings returns true if the result contains non-breaking findings that
+// are worth failing on in strict mode.
+//
+// Added symbols are deliberately excluded: they are informational, and nearly
+// every upgrade adds something, which made -strict fail on every upgrade and
+// therefore useless as a CI signal.
 func (r *Result) HasWarnings() bool {
-	if r.Changes == nil {
-		return false
-	}
-	return len(r.Changes.Added) > 0 || len(r.UnusedDeps) > 0
+	return len(r.UnusedDeps) > 0
 }
 
-// API represents the exported API surface of a module
+// API represents the exported API surface of a module.
+// All three maps are keyed by symbol key (see symbols.go).
 type API struct {
 	Version    string
 	Funcs      map[string]*Function
@@ -46,10 +49,25 @@ type API struct {
 
 // Function represents an exported function or method
 type Function struct {
-	Name      string
+	Name      string // bare function or method name
+	Recv      string // receiver type name for methods, empty for functions
 	Signature string
 	PkgPath   string
+	PkgName   string // name in reports, see packageQualifier
 	IsMethod  bool
+}
+
+// Display returns the report-friendly name of the function or method
+func (f *Function) Display() string {
+	return displayName(f.PkgName, f.Recv, f.Name)
+}
+
+// Kind returns "method" or "function", for reporting
+func (f *Function) Kind() string {
+	if f.IsMethod {
+		return "method"
+	}
+	return "function"
 }
 
 // Type represents an exported type
@@ -57,6 +75,12 @@ type Type struct {
 	Name    string
 	Kind    string
 	PkgPath string
+	PkgName string // name in reports, see packageQualifier
+}
+
+// Display returns the report-friendly name of the type
+func (t *Type) Display() string {
+	return displayName(t.PkgName, "", t.Name)
 }
 
 // Interface represents an exported interface
@@ -64,6 +88,12 @@ type Interface struct {
 	Name    string
 	Methods []string
 	PkgPath string
+	PkgName string // name in reports, see packageQualifier
+}
+
+// Display returns the report-friendly name of the interface
+func (i *Interface) Display() string {
+	return displayName(i.PkgName, "", i.Name)
 }
 
 // Usage tracks which symbols are used in the project
@@ -88,20 +118,23 @@ type Diff struct {
 
 // RemovedSymbol represents a symbol that was removed
 type RemovedSymbol struct {
-	Name   string
-	Type   string // "function", "type", "interface"
-	UsedIn []Location
+	Name    string
+	Package string // full import path; disambiguates and orders entries
+	Type    string // "function", "type", "interface"
+	UsedIn  []Location
 }
 
 // AddedSymbol represents a symbol that was added
 type AddedSymbol struct {
-	Name string
-	Type string
+	Name    string
+	Package string // full import path; disambiguates and orders entries
+	Type    string
 }
 
 // ChangedSignature represents a function/method with changed signature
 type ChangedSignature struct {
 	Name         string
+	Package      string // full import path; disambiguates and orders entries
 	OldSignature string
 	NewSignature string
 	UsedIn       []Location
@@ -110,6 +143,7 @@ type ChangedSignature struct {
 // InterfaceChange represents changes to an interface
 type InterfaceChange struct {
 	Name           string
+	Package        string // full import path; disambiguates and orders entries
 	AddedMethods   []string
 	RemovedMethods []string
 	ChangedMethods []string
