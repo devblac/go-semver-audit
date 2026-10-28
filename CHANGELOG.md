@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- GitHub Action (`uses: devblac/go-semver-audit@...`) that audits every direct dependency a pull request upgrades - such as a Dependabot or Renovate PR - and posts the result as a PR comment, updated in place on later pushes. Also writes a job summary, exposes `breaking`/`upgrades`/`report` outputs, and can fail the check on breaking changes. Analysis runs against the PR's base commit, where the project is known to build. In a monorepo each module (`working-directory`) keeps its own comment, and when a later push leaves no upgrades the earlier comment is updated to say so
+- `-markdown` output: a GitHub-flavored Markdown report for pull request comments and job summaries, with a table of breaking changes and collapsible signature details
+- `-list-upgrades <go.mod>`: prints `module@version` for each direct dependency whose version differs between the project's go.mod and the given one, e.g. the head of a Dependabot or Renovate PR. Indirect requirements and `/vN` module path changes are skipped
+
 ### Fixed
 - Module versions are now fetched with `go mod download` and loaded from the module cache. Previously `packages.Load("module@version")` always failed silently, so every upgrade was reported as having no breaking changes
 - Analysis fails loudly when a dependency package cannot be type-checked instead of diffing an empty API
@@ -16,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Struct field usage is no longer recorded under the field's bare name, where it produced false matches against package-level symbols
 - Calling a method now counts as using its receiver type, so `cfg := lib.New(); cfg.Validate()` is still caught when `Config` itself is removed
 - Methods of a type that was removed entirely are no longer listed separately from the type, which counted one break several times over
+- `_test.go` files are now part of the usage analysis. Dependencies used only from tests (testify is the most common Go dependency bump) were reported as "module not found in project dependencies", and breaking changes in them went undetected
 - Reports are now deterministic. Symbols, interface methods, usage locations and unused dependencies were collected from maps and emitted in random order, so repeated runs over the same versions produced different output
 - `-strict` no longer treats added symbols as warnings. Almost every upgrade adds something, so the flag failed on every upgrade and was unusable as a CI signal; it now fails on unused dependencies only
 - Unused dependencies are reported as warnings even when the API diff is empty
@@ -25,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now tests against Go 1.26 and 1.27 instead of 1.21 and 1.22
 - Packages are named in reports by their path relative to the module (`foo/v1.Config` vs `bar/v1.Config`; the root package keeps its name), and JSON entries carry the full import path as `package`
 - Reports now name symbols as `package.Symbol` (`slices.SortFunc`) and methods as `package.Type.Method` (`lib.Config.Validate`) instead of bare names, which were ambiguous once a module had more than one package. This changes the `name` field in JSON output, and the `type` field is now `method` for methods
+- README is stored as UTF-8 instead of UTF-16, and documents the GitHub Action, `-markdown`, `-list-upgrades` and exit codes
+- Conflicting output flags (`-json`, `-html`, `-markdown`) are rejected before the analysis runs instead of after it
+- Usage locations are reported relative to the project root with forward slashes (`internal/app/handler.go:42`) instead of as absolute paths, in every output format
 - Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes (or warnings with `-strict`), `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`
 
 ### Added

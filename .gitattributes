@@ -1,0 +1,4 @@
+# Shell scripts must keep LF line endings or bash fails on the trailing
+# carriage return, including when the repository is cloned on Windows
+# with core.autocrlf enabled
+*.sh text eol=lf
