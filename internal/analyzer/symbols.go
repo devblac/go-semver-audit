@@ -1,7 +1,9 @@
 package analyzer
 
 import (
+	"fmt"
 	"go/types"
+	"strconv"
 	"strings"
 )
 
@@ -44,7 +46,7 @@ func signatureKey(sig *types.Signature) string {
 			tp := tparams.At(i)
 			b.WriteString(tp.Obj().Name())
 			b.WriteString(" ")
-			b.WriteString(types.TypeString(tp.Constraint(), nil))
+			b.WriteString(typeKey(tp.Constraint()))
 		}
 		b.WriteString("]")
 	}
@@ -74,7 +76,95 @@ func writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
 				t = slice.Elem()
 			}
 		}
-		b.WriteString(types.TypeString(t, nil))
+		b.WriteString(typeKey(t))
+	}
+}
+
+// typeKey renders a type for signature comparison. It follows
+// types.TypeString, except that function types nested anywhere inside - a
+// callback parameter, a method of an anonymous interface, a field of an
+// anonymous struct - are rendered without parameter names as well, because
+// those names are not part of type identity. Struct field names and tags are
+// part of it, and are kept. Aliases render as the type they stand for.
+func typeKey(t types.Type) string {
+	switch t := types.Unalias(t).(type) {
+	case *types.Signature:
+		return "func" + signatureKey(t)
+	case *types.Pointer:
+		return "*" + typeKey(t.Elem())
+	case *types.Slice:
+		return "[]" + typeKey(t.Elem())
+	case *types.Array:
+		return fmt.Sprintf("[%d]%s", t.Len(), typeKey(t.Elem()))
+	case *types.Map:
+		return "map[" + typeKey(t.Key()) + "]" + typeKey(t.Elem())
+	case *types.Chan:
+		dir := "chan "
+		switch t.Dir() {
+		case types.SendOnly:
+			dir = "chan<- "
+		case types.RecvOnly:
+			dir = "<-chan "
+		}
+		return dir + "(" + typeKey(t.Elem()) + ")"
+	case *types.Struct:
+		var b strings.Builder
+		b.WriteString("struct{")
+		for i := 0; i < t.NumFields(); i++ {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			field := t.Field(i)
+			if !field.Embedded() {
+				b.WriteString(field.Name())
+				b.WriteString(" ")
+			}
+			b.WriteString(typeKey(field.Type()))
+			if tag := t.Tag(i); tag != "" {
+				b.WriteString(" ")
+				b.WriteString(strconv.Quote(tag))
+			}
+		}
+		b.WriteString("}")
+		return b.String()
+	case *types.Interface:
+		if !t.IsMethodSet() {
+			// A constraint with type terms (~int | ~string) has no
+			// parameter names to strip
+			return types.TypeString(t, nil)
+		}
+		var b strings.Builder
+		b.WriteString("interface{")
+		// Methods come sorted, with embedded interfaces flattened in
+		for i := 0; i < t.NumMethods(); i++ {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			b.WriteString(interfaceMethodKey(t.Method(i)))
+		}
+		b.WriteString("}")
+		return b.String()
+	case *types.Named:
+		// Named types render by name, which also stops recursive types
+		var b strings.Builder
+		if pkg := t.Obj().Pkg(); pkg != nil {
+			b.WriteString(pkg.Path())
+			b.WriteString(".")
+		}
+		b.WriteString(t.Obj().Name())
+		if args := t.TypeArgs(); args.Len() > 0 {
+			b.WriteString("[")
+			for i := 0; i < args.Len(); i++ {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(typeKey(args.At(i)))
+			}
+			b.WriteString("]")
+		}
+		return b.String()
+	default:
+		return types.TypeString(t, nil)
 	}
 }
 
