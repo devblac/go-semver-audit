@@ -18,7 +18,6 @@ type JSONReport struct {
 	Changed           []ChangedItem         `json:"changed,omitempty"`
 	InterfaceChanges  []InterfaceChangeItem `json:"interface_changes,omitempty"`
 	Added             []AddedItem           `json:"added,omitempty"`
-	UnusedDeps        []string              `json:"unused_dependencies,omitempty"`
 }
 
 // RemovedItem represents a removed symbol in JSON
@@ -129,9 +128,6 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 			Type:    added.Type,
 		})
 	}
-
-	// Add unused dependencies
-	report.UnusedDeps = result.UnusedDeps
 
 	// Marshal to JSON with indentation
 	data, err := json.MarshalIndent(report, "", "  ")

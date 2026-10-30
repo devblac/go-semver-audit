@@ -72,7 +72,6 @@ func TestFormatMarkdownNoBreakingChanges(t *testing.T) {
 		OldVersion: "v1.0.0",
 		NewVersion: "v1.0.1",
 		Changes:    &analyzer.Diff{},
-		UnusedDeps: []string{"example.com/unused"},
 	}
 
 	got, err := FormatMarkdown(result)
@@ -85,9 +84,6 @@ func TestFormatMarkdownNoBreakingChanges(t *testing.T) {
 	}
 	if strings.Contains(got, "| Change |") || strings.Contains(got, "<details>") {
 		t.Errorf("FormatMarkdown() should not render a table or details without breaking changes\n%s", got)
-	}
-	if !strings.Contains(got, "**Unused dependencies:** `example.com/unused`") {
-		t.Errorf("FormatMarkdown() missing unused dependencies\n%s", got)
 	}
 }
 

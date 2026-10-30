@@ -30,7 +30,6 @@ Semantic versioning promises that minor and patch releases are compatible, but G
 - **Usage-Aware**: Only reports changes to APIs your code uses, test files included, with the file and line of each use
 - **Pull Request Bot**: A GitHub Action that audits every dependency a PR upgrades and comments with the result
 - **CI-Friendly**: JSON and Markdown output, and exit codes that tell "breaking changes" apart from "analysis failed"
-- **Unused Dependency Detection** (experimental): Optionally list dependencies the project no longer imports
 - **Nothing Is Executed**: Dependency code is downloaded and type-checked, never run
 
 ## Installation
@@ -75,18 +74,6 @@ go-semver-audit -upgrade github.com/stretchr/testify@v1.8.0 -json
 
 ```bash
 go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -html > audit.html
-```
-
-### Strict Mode (Exit Non-Zero on Warnings)
-
-```bash
-go-semver-audit -upgrade golang.org/x/sync@v0.5.0 -strict
-```
-
-### Detect Unused Dependencies
-
-```bash
-go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -unused
 ```
 
 ### Markdown Report for Pull Requests
@@ -179,18 +166,18 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
 | `-markdown` | Output results as GitHub-flavored Markdown | `false` |
-| `-strict` | Also exit non-zero on warnings (unused dependencies) | `false` |
-| `-unused` | Report unused dependencies after upgrade | `false` |
 | `-list-upgrades` | Print `module@version` for each direct dependency whose version differs between the project's `go.mod` and the given `go.mod`, then exit | - |
 | `-v` | Verbose output | `false` |
 | `-help` | Show help message | - |
+
+`-strict` and `-unused` are deprecated: they are still accepted so existing scripts keep working, but have no effect. Use `go mod tidy` to remove unused dependencies.
 
 ### Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | No breaking changes |
-| `1` | Breaking changes detected (or warnings, with `-strict`) |
+| `1` | Breaking changes detected |
 | `2` | The analysis could not be completed |
 
 ## How It Works
@@ -209,8 +196,7 @@ This tool performs **static analysis only** and has inherent limitations:
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
 - **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
 - **Not compared yet**: Exported variables and constants, struct fields, and changes to a type's underlying definition
-- **Possible false positives**: Renaming a parameter is reported as a signature change, although callers are unaffected; a changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it
-- **Unused dependencies** (`-unused`) is experimental and can report dependencies that are in use
+- **Possible false positives**: A changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it; renaming a *type* parameter of a generic function is reported as a signature change
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly
 - **CGO dependencies**: Modules with cgo may not be fully analyzable

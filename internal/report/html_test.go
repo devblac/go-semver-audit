@@ -40,7 +40,6 @@ func TestFormatHTML(t *testing.T) {
 			},
 			Added: []analyzer.AddedSymbol{{Name: "NewFunc", Type: "function"}},
 		},
-		UnusedDeps: []string{"github.com/unused/dep"},
 	}
 
 	out, err := FormatHTML(result)
@@ -57,7 +56,6 @@ func TestFormatHTML(t *testing.T) {
 		"Removed symbols",
 		"Changed signatures",
 		"Modified interfaces",
-		"Unused dependencies",
 		"main.go:45",
 		"config.go:23",
 		"handler.go:67",

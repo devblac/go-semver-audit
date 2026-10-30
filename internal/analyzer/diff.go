@@ -36,7 +36,7 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 		}
 
 		// Function exists, check if signature changed
-		if oldFunc.Signature != newFunc.Signature {
+		if oldFunc.comparisonSignature() != newFunc.comparisonSignature() {
 			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Changed = append(diff.Changed, ChangedSignature{
@@ -177,29 +177,24 @@ func typeExists(api *API, pkgPath, name string) bool {
 // diffInterfaces compares two interface definitions. key is the symbol key used
 // to look up usage; names in the returned change are report-friendly.
 func diffInterfaces(key string, oldIface, newIface *Interface, usage *Usage) *InterfaceChange {
-	oldMethods := make(map[string]bool)
-	for _, method := range oldIface.Methods {
-		oldMethods[method] = true
-	}
-
-	newMethods := make(map[string]bool)
-	for _, method := range newIface.Methods {
-		newMethods[method] = true
-	}
+	// Methods are matched by comparison key (parameter names ignored) and
+	// reported by their display string
+	oldMethods := oldIface.methodsByKey()
+	newMethods := newIface.methodsByKey()
 
 	var added, removed []string
 
 	// Find removed methods
-	for method := range oldMethods {
-		if !newMethods[method] {
-			removed = append(removed, method)
+	for methodKey, display := range oldMethods {
+		if _, ok := newMethods[methodKey]; !ok {
+			removed = append(removed, display)
 		}
 	}
 
 	// Find added methods
-	for method := range newMethods {
-		if !oldMethods[method] {
-			added = append(added, method)
+	for methodKey, display := range newMethods {
+		if _, ok := oldMethods[methodKey]; !ok {
+			added = append(added, display)
 		}
 	}
 

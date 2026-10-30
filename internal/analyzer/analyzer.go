@@ -89,46 +89,7 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 		OldVersion: upgrade.OldVersion,
 		NewVersion: upgrade.NewVersion,
 		Changes:    diff,
-		UnusedDeps: nil, // Filled by separate call if requested
 	}, nil
-}
-
-// FindUnusedDependencies identifies dependencies that are no longer used
-func (a *Analyzer) FindUnusedDependencies() ([]string, error) {
-	if len(a.pkgs) == 0 {
-		if err := a.loadProject(); err != nil {
-			return nil, err
-		}
-	}
-
-	// Get all direct dependencies from go.mod
-	dependencies, err := a.getDirectDependencies()
-	if err != nil {
-		return nil, err
-	}
-
-	// Find which dependencies are actually imported
-	imported := make(map[string]bool)
-	for _, pkg := range a.pkgs {
-		for _, imp := range pkg.Imports {
-			// Extract module path from import path
-			modPath := extractModulePath(imp.PkgPath)
-			if modPath != "" {
-				imported[modPath] = true
-			}
-		}
-	}
-
-	// Identify unused dependencies
-	var unused []string
-	for _, dep := range dependencies {
-		if !imported[dep] {
-			unused = append(unused, dep)
-		}
-	}
-	sort.Strings(unused)
-
-	return unused, nil
 }
 
 // loadProject loads the Go packages for the project
@@ -353,10 +314,11 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 			case *types.Func:
 				sig := obj.Type().(*types.Signature)
 				api.Funcs[symbolKey(pkg.PkgPath, obj.Name())] = &Function{
-					Name:      obj.Name(),
-					Signature: sig.String(),
-					PkgPath:   pkg.PkgPath,
-					PkgName:   qualifier,
+					Name:         obj.Name(),
+					Signature:    sig.String(),
+					SignatureKey: signatureKey(sig),
+					PkgPath:      pkg.PkgPath,
+					PkgName:      qualifier,
 				}
 
 			case *types.TypeName:
@@ -369,14 +331,17 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 				iface, isInterface := named.Underlying().(*types.Interface)
 				if isInterface {
 					methods := make([]string, iface.NumMethods())
+					methodKeys := make([]string, iface.NumMethods())
 					for i := 0; i < iface.NumMethods(); i++ {
 						methods[i] = interfaceMethodString(iface.Method(i))
+						methodKeys[i] = interfaceMethodKey(iface.Method(i))
 					}
 					api.Interfaces[symbolKey(pkg.PkgPath, obj.Name())] = &Interface{
-						Name:    obj.Name(),
-						Methods: methods,
-						PkgPath: pkg.PkgPath,
-						PkgName: qualifier,
+						Name:       obj.Name(),
+						Methods:    methods,
+						MethodKeys: methodKeys,
+						PkgPath:    pkg.PkgPath,
+						PkgName:    qualifier,
 					}
 				} else {
 					// Regular type
@@ -393,12 +358,13 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 						if method.Exported() {
 							sig := method.Type().(*types.Signature)
 							api.Funcs[methodSymbolKey(pkg.PkgPath, obj.Name(), method.Name())] = &Function{
-								Name:      method.Name(),
-								Recv:      obj.Name(),
-								Signature: sig.String(),
-								PkgPath:   pkg.PkgPath,
-								PkgName:   qualifier,
-								IsMethod:  true,
+								Name:         method.Name(),
+								Recv:         obj.Name(),
+								Signature:    sig.String(),
+								SignatureKey: signatureKey(sig),
+								PkgPath:      pkg.PkgPath,
+								PkgName:      qualifier,
+								IsMethod:     true,
 							}
 						}
 					}
@@ -551,37 +517,4 @@ func receiverNamed(t types.Type) *types.Named {
 	}
 	named, _ := t.(*types.Named)
 	return named
-}
-
-// getDirectDependencies retrieves direct dependencies from go.mod
-func (a *Analyzer) getDirectDependencies() ([]string, error) {
-	// This is a simplified implementation
-	// In production, you'd parse go.mod properly
-	var deps []string
-	for _, pkg := range a.pkgs {
-		for _, imp := range pkg.Imports {
-			if imp.Module != nil && imp.Module.Path != "" {
-				deps = append(deps, imp.Module.Path)
-			}
-		}
-	}
-
-	// Deduplicate
-	seen := make(map[string]bool)
-	var unique []string
-	for _, dep := range deps {
-		if !seen[dep] {
-			unique = append(unique, dep)
-			seen[dep] = true
-		}
-	}
-
-	return unique, nil
-}
-
-// extractModulePath extracts the module path from an import path
-func extractModulePath(importPath string) string {
-	// Simplified: in production, you'd need proper module resolution
-	// This works for most cases
-	return importPath
 }

@@ -47,14 +47,6 @@ func FormatMarkdown(result *analyzer.Result) (string, error) {
 		writeMarkdownDetails(&b, changes)
 	}
 
-	if len(result.UnusedDeps) > 0 {
-		deps := make([]string, len(result.UnusedDeps))
-		for i, dep := range result.UnusedDeps {
-			deps[i] = "`" + dep + "`"
-		}
-		fmt.Fprintf(&b, "**Unused dependencies:** %s\n\n", strings.Join(deps, ", "))
-	}
-
 	return b.String(), nil
 }
 
