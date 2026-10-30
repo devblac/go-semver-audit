@@ -73,6 +73,29 @@ func TestSignatureKey(t *testing.T) {
 		{"result added", "func F() {}", "func F() error { return nil }", false},
 		{"slice became variadic", "func F(xs []int) {}", "func F(xs ...int) {}", false},
 		{"constraint tightened", "func F[E any](s []E) {}", "func F[E comparable](s []E) {}", false},
+
+		// Names nested inside parameter types are not part of type identity
+		{"callback parameter renamed", "func F(cb func(old int)) {}", "func F(cb func(new int)) {}", true},
+		{"callback result named", "func F(cb func() error) {}", "func F(cb func() (err error)) {}", true},
+		{"callback in slice, map and pointer renamed",
+			"func F(a []func(x int), b map[string]func(x int), c *func(x int)) {}",
+			"func F(a []func(y int), b map[string]func(y int), c *func(y int)) {}", true},
+		{"anonymous interface method parameter renamed",
+			"func F(v interface{ Get(key string) error }) {}",
+			"func F(v interface{ Get(k string) error }) {}", true},
+		{"func-typed struct field parameter renamed",
+			"func F(o struct{ Hook func(x int) }) {}",
+			"func F(o struct{ Hook func(y int) }) {}", true},
+		{"alias and the type it stands for", "type A = int\nfunc F(x A) {}", "func F(x int) {}", true},
+
+		// ...but the types themselves still are
+		{"callback parameter type changed", "func F(cb func(old int)) {}", "func F(cb func(old string)) {}", false},
+		{"anonymous interface method changed",
+			"func F(v interface{ Get(key string) error }) {}",
+			"func F(v interface{ Get(key string) bool }) {}", false},
+		{"struct field renamed", "func F(o struct{ A int }) {}", "func F(o struct{ B int }) {}", false},
+		{"struct tag changed", "func F(o struct{ A int `json:\"a\"` }) {}", "func F(o struct{ A int `json:\"b\"` }) {}", false},
+		{"channel direction changed", "func F(c chan int) {}", "func F(c <-chan int) {}", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
