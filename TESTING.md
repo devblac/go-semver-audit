@@ -60,10 +60,7 @@ This will:
 
 ### Coverage Thresholds
 
-Current coverage (as of last update):
-- `cmd/go-semver-audit`: 25.4%
-- `internal/analyzer`: 26.4%
-- `internal/report`: 99.0%
+Current coverage is tracked on [Codecov](https://codecov.io/gh/devblac/go-semver-audit) (see the badge in the README); `go test -cover ./...` prints it per package locally.
 
 We don't enforce strict coverage thresholds, but aim to:
 - Test all public APIs
@@ -174,10 +171,9 @@ Test files follow Go conventions:
 
 ### Test Data
 
-The `testdata/` directory contains fixtures for integration tests:
-- `oldlib/` - Example library at version 1.0
-- `newlib/` - Example library at version 2.0
-- `userproject/` - Example project using the library
+`internal/analyzer/integration_test.go` runs the whole pipeline against real module versions. It writes each version of a small library into a temporary, file-based `GOPROXY`, creates a project that depends on it, and runs `Analyze()` end to end — so it needs the `go` toolchain but no network access. Add new end-to-end cases by extending its fixture.
+
+The sources under `testdata/` are illustrative only; no test loads them.
 
 ## Writing Tests
 
@@ -271,10 +267,14 @@ go test -bench=. ./...
 
 ## Integration Testing
 
-For integration testing with real Go modules:
-1. Use the `testdata/` directory for fixture projects
-2. Consider using temporary directories for test isolation
-3. Mock external calls (e.g., downloading modules) when possible
+The end-to-end test (see [Test Data](#test-data)) is skipped with `-short`:
+
+```bash
+go test -short ./...   # unit tests only, fastest
+go test ./...          # includes the end-to-end test
+```
+
+Keep it offline: publish fixture modules to the local file-based `GOPROXY` rather than depending on real modules from the internet.
 
 ## Code Quality Tools
 
