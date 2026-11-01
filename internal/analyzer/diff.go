@@ -1,6 +1,10 @@
 package analyzer
 
-import "sort"
+import (
+	"slices"
+	"sort"
+	"strings"
+)
 
 // diffAPIs compares two API surfaces and returns the differences
 func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
@@ -221,18 +225,37 @@ func diffInterfaces(key string, oldIface, newIface *Interface, usage *Usage) *In
 	sort.Strings(added)
 	sort.Strings(removed)
 
-	// If there are changes and the interface is used, report it
-	if (len(added) > 0 || len(removed) > 0) && len(usage.Symbols[key]) > 0 {
-		return &InterfaceChange{
-			Name:           oldIface.Display(),
-			Package:        oldIface.PkgPath,
-			AddedMethods:   added,
-			RemovedMethods: removed,
-			UsedIn:         usage.Symbols[key],
-		}
+	// Using the interface is not enough for a change to break the project:
+	// an added method breaks only the project's own implementations, and a
+	// removed one only the calls to it. A changed method is both.
+	var implemented, called []Location
+	if len(added) > 0 {
+		implemented = usage.Implementations[key]
+	}
+	for _, display := range removed {
+		called = append(called, usage.Symbols[key+"."+methodName(display)]...)
+	}
+	if len(implemented) == 0 && len(called) == 0 {
+		return nil
 	}
 
-	return nil
+	return &InterfaceChange{
+		Name:           oldIface.Display(),
+		Package:        oldIface.PkgPath,
+		AddedMethods:   added,
+		RemovedMethods: removed,
+		UsedIn:         sortLocations(append(slices.Clone(implemented), called...)),
+		ImplementedIn:  implemented,
+	}
+}
+
+// methodName returns the name of an interface method from its display string,
+// e.g. "Key" from "Key(prefix string) string"
+func methodName(display string) string {
+	if i := strings.IndexByte(display, '('); i >= 0 {
+		return display[:i]
+	}
+	return display
 }
 
 // diffValues reports package-level vars and consts that were removed, or whose

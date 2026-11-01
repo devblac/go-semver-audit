@@ -148,7 +148,8 @@ func TestDiffAPIs(t *testing.T) {
 			},
 			usage: &Usage{
 				Symbols: map[string][]Location{
-					"Handler": {{File: "main.go", Line: 10}},
+					"Handler":       {{File: "main.go", Line: 10}},
+					"Handler.Close": {{File: "main.go", Line: 11}},
 				},
 			},
 			want: struct {
@@ -261,86 +262,91 @@ func TestDiffAPIs(t *testing.T) {
 }
 
 func TestDiffInterfaces(t *testing.T) {
+	handler := &Interface{Name: "Handler", Methods: []string{"Handle() error"}}
+	withClose := &Interface{Name: "Handler", Methods: []string{"Handle() error", "Close() error"}}
+	changedHandle := &Interface{Name: "Handler", Methods: []string{"Handle(ctx context.Context) error"}}
+
+	implemented := []Location{{File: "fake.go", Line: 3}}
+	typeUse := []Location{{File: "main.go", Line: 10}}
+	handleCall := []Location{{File: "main.go", Line: 12}}
+	closeCall := []Location{{File: "main.go", Line: 14}}
+
 	tests := []struct {
-		name     string
-		oldIface *Interface
-		newIface *Interface
-		usage    *Usage
-		wantNil  bool
+		name               string
+		oldIface, newIface *Interface
+		usage              *Usage
+		wantUsedIn         []Location
 	}{
 		{
-			name: "no changes",
-			oldIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error"},
-			},
-			newIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error"},
-			},
+			name:     "no changes",
+			oldIface: handler, newIface: handler,
 			usage: &Usage{
-				Symbols: map[string][]Location{
-					"Handler": {{File: "main.go", Line: 10}},
-				},
+				Symbols:         map[string][]Location{"Handler": typeUse, "Handler.Handle": handleCall},
+				Implementations: map[string][]Location{"Handler": implemented},
 			},
-			wantNil: true,
 		},
 		{
-			name: "method added and used",
-			oldIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error"},
-			},
-			newIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error", "Close() error"},
-			},
-			usage: &Usage{
-				Symbols: map[string][]Location{
-					"Handler": {{File: "main.go", Line: 10}},
-				},
-			},
-			wantNil: false,
+			// Values of the interface come from the library; nothing in the
+			// project has to grow a Close method
+			name:     "method added, interface only called",
+			oldIface: handler, newIface: withClose,
+			usage: &Usage{Symbols: map[string][]Location{"Handler": typeUse, "Handler.Handle": handleCall}},
 		},
 		{
-			name: "method removed and used",
-			oldIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error", "Close() error"},
-			},
-			newIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error"},
-			},
+			name:     "method added, interface implemented",
+			oldIface: handler, newIface: withClose,
 			usage: &Usage{
-				Symbols: map[string][]Location{
-					"Handler": {{File: "main.go", Line: 10}},
-				},
+				Symbols:         map[string][]Location{"Handler": typeUse},
+				Implementations: map[string][]Location{"Handler": implemented},
 			},
-			wantNil: false,
+			wantUsedIn: implemented,
 		},
 		{
-			name: "changes but not used",
-			oldIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error"},
-			},
-			newIface: &Interface{
-				Name:    "Handler",
-				Methods: []string{"Handle() error", "Close() error"},
-			},
+			// Implementations keep compiling with an extra method
+			name:     "method removed, interface implemented",
+			oldIface: withClose, newIface: handler,
 			usage: &Usage{
-				Symbols: map[string][]Location{},
+				Symbols:         map[string][]Location{"Handler": typeUse, "Handler.Handle": handleCall},
+				Implementations: map[string][]Location{"Handler": implemented},
 			},
-			wantNil: true,
+		},
+		{
+			name:     "method removed and called",
+			oldIface: withClose, newIface: handler,
+			usage:      &Usage{Symbols: map[string][]Location{"Handler": typeUse, "Handler.Close": closeCall}},
+			wantUsedIn: closeCall,
+		},
+		{
+			// A changed method breaks both its callers and implementations
+			name:     "method changed, called and implemented",
+			oldIface: handler, newIface: changedHandle,
+			usage: &Usage{
+				Symbols:         map[string][]Location{"Handler": typeUse, "Handler.Handle": handleCall},
+				Implementations: map[string][]Location{"Handler": implemented},
+			},
+			wantUsedIn: []Location{implemented[0], handleCall[0]},
+		},
+		{
+			name:     "changes but not used",
+			oldIface: handler, newIface: changedHandle,
+			usage: &Usage{Symbols: map[string][]Location{}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := diffInterfaces(tt.oldIface.Name, tt.oldIface, tt.newIface, tt.usage)
-			if (got == nil) != tt.wantNil {
-				t.Errorf("diffInterfaces() returned nil = %v, wantNil %v", got == nil, tt.wantNil)
+			if tt.wantUsedIn == nil {
+				if got != nil {
+					t.Fatalf("diffInterfaces() = %+v, want nil", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("diffInterfaces() = nil, want UsedIn %v", tt.wantUsedIn)
+			}
+			if !reflect.DeepEqual(got.UsedIn, tt.wantUsedIn) {
+				t.Errorf("diffInterfaces() UsedIn = %v, want %v", got.UsedIn, tt.wantUsedIn)
 			}
 		})
 	}
@@ -395,6 +401,9 @@ func TestDiffAPIsIsDeterministic(t *testing.T) {
 			"Charlie": {{File: "util.go", Line: 5}},
 			"Config":  {{File: "config.go", Line: 7}},
 			"Handler": {{File: "handler.go", Line: 3}},
+		},
+		Implementations: map[string][]Location{
+			"Handler": {{File: "handler.go", Line: 5}},
 		},
 	}
 

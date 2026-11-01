@@ -163,6 +163,9 @@ func (i *Interface) methodsByKey() map[string]string {
 type Usage struct {
 	Symbols map[string][]Location
 	Imports map[string]bool
+	// Implementations maps an interface's symbol key to the project types
+	// that implement it with methods of their own (see implementations)
+	Implementations map[string][]Location
 }
 
 // Location represents a source code location
@@ -217,7 +220,8 @@ type InterfaceChange struct {
 	AddedMethods   []string
 	RemovedMethods []string
 	ChangedMethods []string
-	UsedIn         []Location
+	UsedIn         []Location // implementations and calls that break
+	ImplementedIn  []Location // the implementations among UsedIn
 }
 
 // ParseUpgrade parses an upgrade specification like "module@version"

@@ -413,8 +413,9 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 // findUsage identifies which exported symbols from the module are used in the project
 func (a *Analyzer) findUsage(module string) *Usage {
 	usage := &Usage{
-		Symbols: make(map[string][]Location),
-		Imports: make(map[string]bool),
+		Symbols:         make(map[string][]Location),
+		Imports:         make(map[string]bool),
+		Implementations: make(map[string][]Location),
 	}
 
 	// Collect every package of the target module that the project imports
@@ -453,20 +454,128 @@ func (a *Analyzer) findUsage(module string) *Usage {
 		}
 	}
 
+	a.findImplementations(module, usage)
+
 	for key, locations := range usage.Symbols {
-		// TypesInfo.Uses is a map, so locations arrive in random order
-		sort.Slice(locations, func(i, j int) bool {
-			if locations[i].File != locations[j].File {
-				return locations[i].File < locations[j].File
-			}
-			return locations[i].Line < locations[j].Line
-		})
-		// With tests loaded, a package's regular files are type-checked twice
-		// (once on their own, once in the test variant), so drop the repeats
-		usage.Symbols[key] = slices.Compact(locations)
+		usage.Symbols[key] = sortLocations(locations)
+	}
+	for key, locations := range usage.Implementations {
+		usage.Implementations[key] = sortLocations(locations)
 	}
 
 	return usage
+}
+
+// sortLocations sorts locations and drops repeats. TypesInfo maps are
+// iterated in random order, and with tests loaded a package's regular files
+// are type-checked twice (once on their own, once in the test variant).
+func sortLocations(locations []Location) []Location {
+	sort.Slice(locations, func(i, j int) bool {
+		if locations[i].File != locations[j].File {
+			return locations[i].File < locations[j].File
+		}
+		return locations[i].Line < locations[j].Line
+	})
+	return slices.Compact(locations)
+}
+
+// findImplementations records, for each exported interface of the module's
+// imported packages, the project types that implement it. Adding a method to
+// an interface only breaks those types; code that merely calls through the
+// interface keeps compiling.
+//
+// A type counts only if it declares at least one of the interface's methods
+// itself. One that gets them all by embedding the interface, or a type of the
+// module, picks up added methods automatically.
+func (a *Analyzer) findImplementations(module string, usage *Usage) {
+	inModule := func(pkg *types.Package) bool {
+		return pkg != nil && (pkg.Path() == module || strings.HasPrefix(pkg.Path(), module+"/"))
+	}
+
+	type moduleIface struct {
+		key   string
+		iface *types.Interface
+	}
+	var ifaces []moduleIface
+	seen := make(map[*types.Package]bool)
+	for _, pkg := range a.pkgs {
+		for _, imp := range pkg.Imports {
+			if imp.Types == nil || !usage.Imports[imp.PkgPath] || seen[imp.Types] {
+				continue
+			}
+			seen[imp.Types] = true
+
+			scope := imp.Types.Scope()
+			for _, name := range scope.Names() {
+				tn, ok := scope.Lookup(name).(*types.TypeName)
+				if !ok || !tn.Exported() || tn.IsAlias() {
+					continue
+				}
+				iface, ok := tn.Type().Underlying().(*types.Interface)
+				if !ok || iface.NumMethods() == 0 || !iface.IsMethodSet() {
+					continue
+				}
+				ifaces = append(ifaces, moduleIface{symbolKey(imp.PkgPath, tn.Name()), iface})
+			}
+		}
+	}
+	if len(ifaces) == 0 {
+		return
+	}
+
+	for _, pkg := range a.pkgs {
+		if pkg.TypesInfo == nil {
+			continue
+		}
+		// Defs rather than the package scope, so types declared inside
+		// functions are found too; they cannot declare methods, but can get
+		// them by embedding a project type
+		for ident, obj := range pkg.TypesInfo.Defs {
+			tn, ok := obj.(*types.TypeName)
+			if !ok || tn.IsAlias() {
+				continue
+			}
+			named, ok := tn.Type().(*types.Named)
+			if !ok || named.TypeParams().Len() > 0 || types.IsInterface(named) {
+				continue
+			}
+			ptr := types.NewPointer(named)
+
+			for _, mi := range ifaces {
+				if !types.Implements(named, mi.iface) && !types.Implements(ptr, mi.iface) {
+					continue
+				}
+				if !declaresAnyMethod(ptr, mi.iface, inModule) {
+					continue
+				}
+				pos := pkg.Fset.Position(ident.Pos())
+				usage.Implementations[mi.key] = append(usage.Implementations[mi.key],
+					Location{File: a.relativePath(pos.Filename), Line: pos.Line})
+			}
+		}
+	}
+}
+
+// declaresAnyMethod reports whether t has at least one of iface's methods
+// declared on a concrete type outside the module, rather than promoted from an
+// embedded interface or an embedded type of the module.
+func declaresAnyMethod(t types.Type, iface *types.Interface, inModule func(*types.Package) bool) bool {
+	for i := 0; i < iface.NumMethods(); i++ {
+		m := iface.Method(i)
+		obj, _, _ := types.LookupFieldOrMethod(t, true, m.Pkg(), m.Name())
+		fn, ok := obj.(*types.Func)
+		if !ok {
+			continue
+		}
+		recv := fn.Type().(*types.Signature).Recv()
+		if recv == nil || types.IsInterface(recv.Type()) {
+			continue
+		}
+		if named := receiverNamed(recv.Type()); named != nil && !inModule(named.Obj().Pkg()) {
+			return true
+		}
+	}
+	return false
 }
 
 // relativePath reports a file relative to the project root with forward

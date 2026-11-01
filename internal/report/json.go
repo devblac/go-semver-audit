@@ -45,6 +45,7 @@ type InterfaceChangeItem struct {
 	AddedMethods   []string   `json:"added_methods,omitempty"`
 	RemovedMethods []string   `json:"removed_methods,omitempty"`
 	UsedIn         []Location `json:"used_in,omitempty"`
+	ImplementedIn  []Location `json:"implemented_in,omitempty"`
 }
 
 // AddedItem represents an added symbol in JSON
@@ -115,6 +116,12 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 		}
 		for _, loc := range iface.UsedIn {
 			item.UsedIn = append(item.UsedIn, Location{
+				File: loc.File,
+				Line: loc.Line,
+			})
+		}
+		for _, loc := range iface.ImplementedIn {
+			item.ImplementedIn = append(item.ImplementedIn, Location{
 				File: loc.File,
 				Line: loc.Line,
 			})

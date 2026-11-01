@@ -542,6 +542,8 @@ func buildUsagePackage(module string) *packages.Package {
 	parseIdent.NamePos = file.Pos(5)
 	handlerIdent := ast.NewIdent("Handler")
 	handlerIdent.NamePos = file.Pos(8)
+	handleIdent := ast.NewIdent("Handle")
+	handleIdent.NamePos = file.Pos(11)
 
 	libPkg := types.NewPackage(module, "lib")
 	sig := newSignature(nil, nil)
@@ -551,7 +553,10 @@ func buildUsagePackage(module string) *packages.Package {
 	handlerIface := types.NewInterfaceType(nil, nil)
 	handlerIface.Complete()
 	handlerObj := types.NewTypeName(token.NoPos, libPkg, "Handler", handlerIface)
-	types.NewNamed(handlerObj, handlerIface, nil)
+	handlerNamed := types.NewNamed(handlerObj, handlerIface, nil)
+	// A call through the interface: h.Handle()
+	handleObj := types.NewFunc(token.NoPos, libPkg, "Handle",
+		newSignatureWithRecv(types.NewVar(token.NoPos, libPkg, "", handlerNamed), nil, nil))
 
 	return &packages.Package{
 		PkgPath: "example.com/user",
@@ -567,6 +572,7 @@ func buildUsagePackage(module string) *packages.Package {
 				ident:        obj,
 				parseIdent:   parseObj,
 				handlerIdent: handlerObj,
+				handleIdent:  handleObj,
 			},
 		},
 	}

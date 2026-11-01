@@ -1,6 +1,7 @@
 package report
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -279,5 +280,53 @@ func TestCountAffectedLocations(t *testing.T) {
 
 	if got != want {
 		t.Errorf("countAffectedLocations() = %d, want %d", got, want)
+	}
+}
+
+func TestSummarizeFixesInterfaceAction(t *testing.T) {
+	changes := &analyzer.Diff{
+		InterfaceChanges: []analyzer.InterfaceChange{
+			{
+				Name:          "lib.Handler",
+				AddedMethods:  []string{"Close() error"},
+				UsedIn:        []analyzer.Location{{File: "fake.go", Line: 3}},
+				ImplementedIn: []analyzer.Location{{File: "fake.go", Line: 3}},
+			},
+			{
+				Name:           "lib.Reader",
+				RemovedMethods: []string{"Old() string"},
+				UsedIn:         []analyzer.Location{{File: "main.go", Line: 9}},
+			},
+		},
+	}
+
+	want := []string{
+		"Update implementations of lib.Handler at fake.go:3",
+		"Update calls to methods of lib.Reader at main.go:9",
+	}
+	if got := summarizeFixes(changes, 5); !reflect.DeepEqual(got, want) {
+		t.Errorf("summarizeFixes() = %q, want %q", got, want)
+	}
+}
+
+func TestFormatJSONImplementedIn(t *testing.T) {
+	result := &analyzer.Result{
+		Module: "example.com/lib", OldVersion: "v1.0.0", NewVersion: "v1.1.0",
+		Changes: &analyzer.Diff{
+			InterfaceChanges: []analyzer.InterfaceChange{{
+				Name:          "lib.Handler",
+				AddedMethods:  []string{"Close() error"},
+				UsedIn:        []analyzer.Location{{File: "fake.go", Line: 3}},
+				ImplementedIn: []analyzer.Location{{File: "fake.go", Line: 3}},
+			}},
+		},
+	}
+
+	got, err := FormatJSON(result)
+	if err != nil {
+		t.Fatalf("FormatJSON() error = %v", err)
+	}
+	if !strings.Contains(got, `"implemented_in": [`) {
+		t.Errorf("FormatJSON() missing implemented_in\n%s", got)
 	}
 }

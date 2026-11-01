@@ -146,8 +146,11 @@ func summarizeFixes(changes *analyzer.Diff, max int) []string {
 		if len(iface.UsedIn) == 0 {
 			continue
 		}
-		action := "Update implementations"
-		fixes = append(fixes, fmt.Sprintf("%s of %s at %s", action, iface.Name, formatLocations(iface.UsedIn, 1)))
+		action := "Update calls to methods of"
+		if len(iface.ImplementedIn) > 0 {
+			action = "Update implementations of"
+		}
+		fixes = append(fixes, fmt.Sprintf("%s %s at %s", action, iface.Name, formatLocations(iface.UsedIn, 1)))
 	}
 
 	if len(fixes) > max {
