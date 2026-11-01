@@ -161,23 +161,25 @@ func TestResultHasWarnings(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "nil changes allowed",
+			name: "unused dependencies with nil changes",
 			result: &Result{
 				Changes: nil,
 				UnusedDeps: []string{
 					"github.com/unused/dep",
 				},
 			},
-			want: false,
+			want: true,
 		},
 		{
-			name: "additions",
+			// Nearly every upgrade adds symbols; treating that as a warning
+			// made -strict fail on everything.
+			name: "additions are informational, not warnings",
 			result: &Result{
 				Changes: &Diff{
 					Added: []AddedSymbol{{Name: "NewFunc", Type: "function"}},
 				},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name: "unused dependencies",

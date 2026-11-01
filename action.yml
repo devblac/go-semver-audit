@@ -1,0 +1,52 @@
+name: go-semver-audit
+description: Comment on dependency-update pull requests with the breaking changes that affect your Go code
+author: devblac
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  working-directory:
+    description: Directory containing the go.mod to audit, relative to the repository root
+    default: "."
+  github-token:
+    description: Token used to post the pull request comment. Needs the pull-requests write permission
+    default: ${{ github.token }}
+  comment:
+    description: Post the report as a pull request comment, updating it on later runs instead of adding new ones
+    default: "true"
+  fail-on-breaking:
+    description: Fail the step when an upgrade breaks code in this project
+    default: "true"
+  fail-on-error:
+    description: Fail the step when an upgrade could not be analyzed
+    default: "false"
+
+outputs:
+  breaking:
+    description: '"true" if any upgrade breaks code in this project'
+    value: ${{ steps.audit.outputs.breaking }}
+  upgrades:
+    description: Number of direct dependency upgrades analyzed
+    value: ${{ steps.audit.outputs.upgrades }}
+  report:
+    description: Path to the Markdown report
+    value: ${{ steps.audit.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - id: audit
+      name: Audit dependency upgrades
+      shell: bash
+      env:
+        GSA_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        GSA_COMMENT: ${{ inputs.comment }}
+        GSA_FAIL_ON_BREAKING: ${{ inputs.fail-on-breaking }}
+        GSA_FAIL_ON_ERROR: ${{ inputs.fail-on-error }}
+        GSA_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        GSA_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        GSA_PR_NUMBER: ${{ github.event.pull_request.number }}
+        GSA_REPOSITORY: ${{ github.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash "$GITHUB_ACTION_PATH/action/run.sh"

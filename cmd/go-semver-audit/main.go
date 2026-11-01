@@ -5,22 +5,34 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/devblac/go-semver-audit/internal/analyzer"
+	"github.com/devblac/go-semver-audit/internal/gomod"
 	"github.com/devblac/go-semver-audit/internal/report"
 )
 
 const version = "0.1.0"
 
+// Exit codes. Breaking changes and tool failures are reported separately so
+// CI can tell "the upgrade is risky" apart from "the audit did not run".
+const (
+	exitOK       = 0 // analysis completed, nothing to report
+	exitBreaking = 1 // breaking changes found (or warnings, with -strict)
+	exitError    = 2 // the analysis could not be completed
+)
+
 type config struct {
-	projectPath string
-	upgrade     string
-	jsonOutput  bool
-	htmlOutput  bool
-	strict      bool
-	unused      bool
-	verbose     bool
-	showVersion bool
+	projectPath    string
+	upgrade        string
+	listUpgrades   string
+	jsonOutput     bool
+	htmlOutput     bool
+	markdownOutput bool
+	strict         bool
+	unused         bool
+	verbose        bool
+	showVersion    bool
 }
 
 // Allow dependency injection for testing.
@@ -34,12 +46,13 @@ var (
 	newAnalyzerFn  = func(projectPath string) (analyzerClient, error) {
 		return analyzer.New(projectPath)
 	}
-	formatJSONFn           = report.FormatJSON
-	formatHTMLFn           = report.FormatHTML
-	formatTextFn           = report.FormatText
-	exitFunc               = os.Exit
-	stdoutWriter io.Writer = os.Stdout
-	stderrWriter io.Writer = os.Stderr
+	formatJSONFn               = report.FormatJSON
+	formatHTMLFn               = report.FormatHTML
+	formatMarkdownFn           = report.FormatMarkdown
+	formatTextFn               = report.FormatText
+	exitFunc                   = os.Exit
+	stdoutWriter     io.Writer = os.Stdout
+	stderrWriter     io.Writer = os.Stderr
 )
 
 func main() {
@@ -47,7 +60,15 @@ func main() {
 
 	if cfg.showVersion {
 		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", version)
-		exitFunc(0)
+		exitFunc(exitOK)
+		return
+	}
+
+	if cfg.listUpgrades != "" {
+		if err := listUpgrades(cfg); err != nil {
+			fmt.Fprintf(stderrWriter, "Error: %v\n", err)
+			exitFunc(exitError)
+		}
 		return
 	}
 
@@ -55,13 +76,13 @@ func main() {
 		fmt.Fprintln(stderrWriter, "Error: -upgrade flag is required")
 		fmt.Fprintln(stderrWriter, "Usage: go-semver-audit -upgrade module@version [options]")
 		flag.Usage()
-		exitFunc(1)
+		exitFunc(exitError)
 		return
 	}
 
 	if err := run(cfg); err != nil {
 		fmt.Fprintf(stderrWriter, "Error: %v\n", err)
-		exitFunc(1)
+		exitFunc(exitError)
 		return
 	}
 }
@@ -73,6 +94,9 @@ func parseFlags() config {
 	flag.StringVar(&cfg.upgrade, "upgrade", "", "Dependency upgrade in format module@version (required)")
 	flag.BoolVar(&cfg.jsonOutput, "json", false, "Output results as JSON")
 	flag.BoolVar(&cfg.htmlOutput, "html", false, "Output results as HTML")
+	flag.BoolVar(&cfg.markdownOutput, "markdown", false, "Output results as GitHub-flavored Markdown (for PR comments)")
+	flag.StringVar(&cfg.listUpgrades, "list-upgrades", "",
+		"Print module@version for each direct dependency whose version differs between\nthe project's go.mod and the given go.mod, then exit")
 	flag.BoolVar(&cfg.strict, "strict", false, "Exit non-zero on warnings (not just errors)")
 	flag.BoolVar(&cfg.unused, "unused", false, "Report unused dependencies after upgrade")
 	flag.BoolVar(&cfg.verbose, "v", false, "Verbose output")
@@ -86,6 +110,11 @@ func parseFlags() config {
 		fmt.Fprintf(stderrWriter, "\nExample:\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -upgrade github.com/pkg/errors@v0.9.1\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -path ./myproject -upgrade github.com/gin-gonic/gin@v1.9.0 -json\n")
+		fmt.Fprintf(stderrWriter, "  go-semver-audit -list-upgrades /tmp/pr-head/go.mod\n")
+		fmt.Fprintf(stderrWriter, "\nExit codes:\n")
+		fmt.Fprintf(stderrWriter, "  %d  no breaking changes\n", exitOK)
+		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected (or warnings, with -strict)\n", exitBreaking)
+		fmt.Fprintf(stderrWriter, "  %d  the analysis could not be completed\n", exitError)
 	}
 
 	flag.Parse()
@@ -93,7 +122,40 @@ func parseFlags() config {
 	return cfg
 }
 
+// listUpgrades prints module@version for every direct dependency whose version
+// differs between the project's go.mod and the go.mod given to -list-upgrades
+func listUpgrades(cfg config) error {
+	oldGoMod, err := os.ReadFile(filepath.Join(cfg.projectPath, "go.mod"))
+	if err != nil {
+		return fmt.Errorf("failed to read project go.mod: %w", err)
+	}
+	newGoMod, err := os.ReadFile(cfg.listUpgrades)
+	if err != nil {
+		return fmt.Errorf("failed to read go.mod to compare against: %w", err)
+	}
+
+	upgrades, err := gomod.DirectUpgrades(oldGoMod, newGoMod)
+	if err != nil {
+		return err
+	}
+	for _, u := range upgrades {
+		fmt.Fprintf(stdoutWriter, "%s@%s\n", u.Module, u.NewVersion)
+	}
+	return nil
+}
+
 func run(cfg config) error {
+	// Validate output flags before spending time on the analysis
+	formats := 0
+	for _, enabled := range []bool{cfg.jsonOutput, cfg.htmlOutput, cfg.markdownOutput} {
+		if enabled {
+			formats++
+		}
+	}
+	if formats > 1 {
+		return fmt.Errorf("use only one of -json, -html or -markdown")
+	}
+
 	// Parse the upgrade specification
 	moduleUpgrade, err := parseUpgradeFn(cfg.upgrade)
 	if err != nil {
@@ -130,15 +192,13 @@ func run(cfg config) error {
 
 	// Generate report
 	var output string
-	if cfg.jsonOutput && cfg.htmlOutput {
-		return fmt.Errorf("cannot use -json and -html together")
-	}
-
 	switch {
 	case cfg.jsonOutput:
 		output, err = formatJSONFn(result)
 	case cfg.htmlOutput:
 		output, err = formatHTMLFn(result)
+	case cfg.markdownOutput:
+		output, err = formatMarkdownFn(result)
 	default:
 		output, err = formatTextFn(result, cfg.verbose)
 	}
@@ -161,13 +221,13 @@ func run(cfg config) error {
 func determineExitCode(result *analyzer.Result, strict bool) int {
 	// Exit non-zero if there are breaking changes
 	if result.HasBreakingChanges() {
-		return 1
+		return exitBreaking
 	}
 
 	// In strict mode, exit non-zero if there are any warnings
 	if strict && result.HasWarnings() {
-		return 1
+		return exitBreaking
 	}
 
-	return 0
+	return exitOK
 }
