@@ -42,6 +42,7 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 				diff.Changed = append(diff.Changed, ChangedSignature{
 					Name:         oldFunc.Display(),
 					Package:      oldFunc.PkgPath,
+					Type:         oldFunc.Kind(),
 					OldSignature: oldFunc.Signature,
 					NewSignature: newFunc.Signature,
 					UsedIn:       locations,
@@ -61,9 +62,10 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 		}
 	}
 
-	// Check for removed types
+	// Check for removed types, and types whose underlying type changed
 	for key, oldType := range oldAPI.Types {
-		if _, exists := newAPI.Types[key]; !exists {
+		newType, exists := newAPI.Types[key]
+		if !exists {
 			locations := usage.Symbols[key]
 			if len(locations) > 0 {
 				diff.Removed = append(diff.Removed, RemovedSymbol{
@@ -71,6 +73,21 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 					Package: oldType.PkgPath,
 					Type:    "type",
 					UsedIn:  locations,
+				})
+			}
+			continue
+		}
+
+		if oldType.UnderlyingKey != "" && newType.UnderlyingKey != "" && oldType.UnderlyingKey != newType.UnderlyingKey {
+			locations := usage.Symbols[key]
+			if len(locations) > 0 {
+				diff.Changed = append(diff.Changed, ChangedSignature{
+					Name:         oldType.Display(),
+					Package:      oldType.PkgPath,
+					Type:         "type",
+					OldSignature: oldType.Kind,
+					NewSignature: newType.Kind,
+					UsedIn:       locations,
 				})
 			}
 		}
@@ -118,6 +135,9 @@ func diffAPIs(oldAPI, newAPI *API, usage *Usage) *Diff {
 			})
 		}
 	}
+
+	diffValues(diff, oldAPI, newAPI, usage)
+	diffFields(diff, oldAPI, newAPI, usage)
 
 	// The API surfaces are maps, so everything above is collected in random
 	// order. Sort before returning to keep reports stable across runs.
@@ -213,4 +233,87 @@ func diffInterfaces(key string, oldIface, newIface *Interface, usage *Usage) *In
 	}
 
 	return nil
+}
+
+// diffValues reports package-level vars and consts that were removed, or whose
+// type changed or that switched between var and const
+func diffValues(diff *Diff, oldAPI, newAPI *API, usage *Usage) {
+	for key, oldValue := range oldAPI.Values {
+		newValue, exists := newAPI.Values[key]
+		locations := usage.Symbols[key]
+		switch {
+		case !exists:
+			if len(locations) > 0 {
+				diff.Removed = append(diff.Removed, RemovedSymbol{
+					Name:    oldValue.Display(),
+					Package: oldValue.PkgPath,
+					Type:    oldValue.Kind,
+					UsedIn:  locations,
+				})
+			}
+		case oldValue.comparisonSignature() != newValue.comparisonSignature():
+			if len(locations) > 0 {
+				diff.Changed = append(diff.Changed, ChangedSignature{
+					Name:         oldValue.Display(),
+					Package:      oldValue.PkgPath,
+					Type:         oldValue.Kind,
+					OldSignature: oldValue.Signature(),
+					NewSignature: newValue.Signature(),
+					UsedIn:       locations,
+				})
+			}
+		}
+	}
+
+	for key, newValue := range newAPI.Values {
+		if _, exists := oldAPI.Values[key]; !exists {
+			diff.Added = append(diff.Added, AddedSymbol{
+				Name:    newValue.Display(),
+				Package: newValue.PkgPath,
+				Type:    newValue.Kind,
+			})
+		}
+	}
+}
+
+// diffFields reports exported struct fields that were removed or whose type
+// changed. Fields of a struct type that was removed entirely are covered by
+// the type's own entry.
+func diffFields(diff *Diff, oldAPI, newAPI *API, usage *Usage) {
+	for key, oldField := range oldAPI.Fields {
+		newField, exists := newAPI.Fields[key]
+		locations := usage.Symbols[key]
+		switch {
+		case !exists:
+			if len(locations) > 0 && typeExists(newAPI, oldField.PkgPath, oldField.Recv) {
+				diff.Removed = append(diff.Removed, RemovedSymbol{
+					Name:    oldField.Display(),
+					Package: oldField.PkgPath,
+					Type:    "field",
+					UsedIn:  locations,
+				})
+			}
+		case oldField.TypeKey != newField.TypeKey:
+			if len(locations) > 0 {
+				diff.Changed = append(diff.Changed, ChangedSignature{
+					Name:         oldField.Display(),
+					Package:      oldField.PkgPath,
+					Type:         "field",
+					OldSignature: oldField.Type,
+					NewSignature: newField.Type,
+					UsedIn:       locations,
+				})
+			}
+		}
+	}
+
+	for key, newField := range newAPI.Fields {
+		if _, exists := oldAPI.Fields[key]; !exists {
+			diff.Added = append(diff.Added, AddedSymbol{
+				Name:    newField.Display(),
+				Package: newField.PkgPath,
+				Type:    "field",
+			})
+		}
+	}
 }

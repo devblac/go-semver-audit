@@ -168,6 +168,18 @@ func typeKey(t types.Type) string {
 	}
 }
 
+// underlyingKey renders a named type's underlying type for comparison, so
+// that type ID int becoming type ID string is reported. Struct types compare
+// as just "struct": their exported fields are diffed one by one, and adding a
+// field or changing an unexported one breaks no caller that names fields.
+// Interfaces are diffed by method and are never compared this way.
+func underlyingKey(t types.Type) string {
+	if _, ok := t.Underlying().(*types.Struct); ok {
+		return "struct"
+	}
+	return typeKey(t.Underlying())
+}
+
 // interfaceMethodKey identifies an interface method for comparison: its name
 // and signatureKey, so renaming a method's parameters is not a change.
 func interfaceMethodKey(m *types.Func) string {

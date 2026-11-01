@@ -32,6 +32,7 @@ type RemovedItem struct {
 type ChangedItem struct {
 	Name         string     `json:"name"`
 	Package      string     `json:"package,omitempty"`
+	Type         string     `json:"type,omitempty"`
 	OldSignature string     `json:"old_signature"`
 	NewSignature string     `json:"new_signature"`
 	UsedIn       []Location `json:"used_in,omitempty"`
@@ -91,6 +92,7 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 		item := ChangedItem{
 			Name:         changed.Name,
 			Package:      changed.Package,
+			Type:         changed.Type,
 			OldSignature: changed.OldSignature,
 			NewSignature: changed.NewSignature,
 		}

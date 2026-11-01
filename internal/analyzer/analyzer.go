@@ -243,6 +243,8 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 		Funcs:      make(map[string]*Function),
 		Types:      make(map[string]*Type),
 		Interfaces: make(map[string]*Interface),
+		Values:     make(map[string]*Value),
+		Fields:     make(map[string]*Field),
 	}
 
 	workDir, err := os.MkdirTemp("", "go-semver-audit-*")
@@ -321,6 +323,20 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 					PkgName:      qualifier,
 				}
 
+			case *types.Var, *types.Const:
+				kind := "var"
+				if _, ok := obj.(*types.Const); ok {
+					kind = "const"
+				}
+				api.Values[symbolKey(pkg.PkgPath, obj.Name())] = &Value{
+					Name:    obj.Name(),
+					Kind:    kind,
+					Type:    obj.Type().String(),
+					TypeKey: typeKey(obj.Type()),
+					PkgPath: pkg.PkgPath,
+					PkgName: qualifier,
+				}
+
 			case *types.TypeName:
 				named, ok := obj.Type().(*types.Named)
 				if !ok {
@@ -346,10 +362,28 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 				} else {
 					// Regular type
 					api.Types[symbolKey(pkg.PkgPath, obj.Name())] = &Type{
-						Name:    obj.Name(),
-						Kind:    named.Underlying().String(),
-						PkgPath: pkg.PkgPath,
-						PkgName: qualifier,
+						Name:          obj.Name(),
+						Kind:          named.Underlying().String(),
+						UnderlyingKey: underlyingKey(named),
+						PkgPath:       pkg.PkgPath,
+						PkgName:       qualifier,
+					}
+
+					if st, ok := named.Underlying().(*types.Struct); ok {
+						for i := 0; i < st.NumFields(); i++ {
+							field := st.Field(i)
+							if !field.Exported() {
+								continue
+							}
+							api.Fields[methodSymbolKey(pkg.PkgPath, obj.Name(), field.Name())] = &Field{
+								Name:    field.Name(),
+								Recv:    obj.Name(),
+								Type:    field.Type().String(),
+								TypeKey: typeKey(field.Type()),
+								PkgPath: pkg.PkgPath,
+								PkgName: qualifier,
+							}
+						}
 					}
 
 					// Add methods for this type
@@ -393,6 +427,8 @@ func (a *Analyzer) findUsage(module string) *Usage {
 		}
 	}
 
+	owners := fieldOwners(a.pkgs, usage.Imports)
+
 	for _, pkg := range a.pkgs {
 		// Scan for symbol usage in the package
 		if pkg.TypesInfo == nil {
@@ -404,7 +440,7 @@ func (a *Analyzer) findUsage(module string) *Usage {
 				continue
 			}
 
-			keys := usageKeys(obj, usage.Imports)
+			keys := usageKeys(obj, usage.Imports, owners)
 			if len(keys) == 0 {
 				continue
 			}
@@ -455,13 +491,53 @@ func (a *Analyzer) relativePath(file string) string {
 	return filepath.ToSlash(file)
 }
 
+// fieldOwner identifies the exported struct type a field belongs to
+type fieldOwner struct {
+	pkgPath, typeName string
+}
+
+// fieldOwners maps each exported field of the exported struct types in the
+// module's imported packages to the type that declares it. A *types.Var for a
+// field does not know its struct, so usage of cfg.Name could not otherwise be
+// told apart from usage of another type's Name.
+func fieldOwners(pkgs []*packages.Package, moduleImports map[string]bool) map[*types.Var]fieldOwner {
+	owners := make(map[*types.Var]fieldOwner)
+	seen := make(map[*types.Package]bool)
+	for _, pkg := range pkgs {
+		for _, imp := range pkg.Imports {
+			if imp.Types == nil || !moduleImports[imp.PkgPath] || seen[imp.Types] {
+				continue
+			}
+			seen[imp.Types] = true
+
+			scope := imp.Types.Scope()
+			for _, name := range scope.Names() {
+				tn, ok := scope.Lookup(name).(*types.TypeName)
+				if !ok || !tn.Exported() || tn.IsAlias() {
+					continue
+				}
+				st, ok := tn.Type().Underlying().(*types.Struct)
+				if !ok {
+					continue
+				}
+				for i := 0; i < st.NumFields(); i++ {
+					if field := st.Field(i); field.Exported() {
+						owners[field] = fieldOwner{imp.PkgPath, tn.Name()}
+					}
+				}
+			}
+		}
+	}
+	return owners
+}
+
 // usageKeys returns the symbol keys a used object should be recorded under,
 // restricted to packages of the module being analyzed.
 //
-// Using a method also records usage of its receiver type: code that only ever
-// does cfg := lib.New(); cfg.Validate() never names Config itself, but still
-// breaks if Config is removed.
-func usageKeys(obj types.Object, moduleImports map[string]bool) []string {
+// Using a method or a field also records usage of its type: code that only
+// ever does cfg := lib.New(); cfg.Validate() never names Config itself, but
+// still breaks if Config is removed.
+func usageKeys(obj types.Object, moduleImports map[string]bool, owners map[*types.Var]fieldOwner) []string {
 	switch o := obj.(type) {
 	case *types.Func:
 		sig, _ := o.Type().(*types.Signature)
@@ -487,12 +563,21 @@ func usageKeys(obj types.Object, moduleImports map[string]bool) []string {
 		return packageLevelKeys(o, moduleImports)
 
 	case *types.Var:
-		// Struct fields are not part of the API surface we diff yet, and
-		// recording them under their bare name produces false matches
-		// against package-level symbols
 		if o.IsField() {
-			return nil
+			// Fields of an instantiated generic struct are copies; the
+			// declared field is their origin
+			owner, ok := owners[o.Origin()]
+			if !ok {
+				return nil
+			}
+			return []string{
+				methodSymbolKey(owner.pkgPath, owner.typeName, o.Name()),
+				symbolKey(owner.pkgPath, owner.typeName),
+			}
 		}
+		return packageLevelKeys(o, moduleImports)
+
+	case *types.Const:
 		return packageLevelKeys(o, moduleImports)
 	}
 

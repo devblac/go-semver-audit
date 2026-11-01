@@ -37,7 +37,11 @@ func FormatMarkdown(result *analyzer.Result) (string, error) {
 			writeMarkdownRow(&b, "Removed "+removed.Type, removed.Name, removed.UsedIn)
 		}
 		for _, changed := range changes.Changed {
-			writeMarkdownRow(&b, "Signature changed", changed.Name, changed.UsedIn)
+			change := "Signature changed"
+			if changed.IsTypeChange() {
+				change = "Type of " + changed.Type + " changed"
+			}
+			writeMarkdownRow(&b, change, changed.Name, changed.UsedIn)
 		}
 		for _, iface := range changes.InterfaceChanges {
 			writeMarkdownRow(&b, "Interface changed", iface.Name, iface.UsedIn)

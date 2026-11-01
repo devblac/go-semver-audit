@@ -3,6 +3,7 @@ package analyzer
 import (
 	"errors"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"path/filepath"
@@ -162,27 +163,44 @@ func TestFindUsageRecordsMethodsAndReceivers(t *testing.T) {
 	}
 }
 
-func TestUsageKeysIgnoresStructFieldsAndForeignPackages(t *testing.T) {
+func TestUsageKeys(t *testing.T) {
 	const module = "example.com/lib"
 	imports := map[string]bool{module: true}
 
 	libPkg := types.NewPackage(module, "lib")
 	otherPkg := types.NewPackage("example.com/other", "other")
 
+	// A field is keyed by the struct that declares it, and also counts as
+	// using that struct
 	field := types.NewField(token.NoPos, libPkg, "Name", types.Typ[types.String], false)
-	if keys := usageKeys(field, imports); keys != nil {
-		t.Errorf("usageKeys() should ignore struct fields, got %v", keys)
+	owners := map[*types.Var]fieldOwner{field: {module, "Config"}}
+	want := []string{"example.com/lib.Config.Name", "example.com/lib.Config"}
+	if keys := usageKeys(field, imports, owners); !reflect.DeepEqual(keys, want) {
+		t.Errorf("usageKeys(field) = %v, want %v", keys, want)
+	}
+
+	// Fields of structs the module does not export, or of anonymous structs,
+	// have no owner and must not fall back to a bare-name key
+	anon := types.NewField(token.NoPos, libPkg, "Name", types.Typ[types.String], false)
+	if keys := usageKeys(anon, imports, owners); keys != nil {
+		t.Errorf("usageKeys() should ignore fields without an owner, got %v", keys)
 	}
 
 	foreign := types.NewFunc(token.NoPos, otherPkg, "Foo", newSignature(nil, nil))
-	if keys := usageKeys(foreign, imports); keys != nil {
+	if keys := usageKeys(foreign, imports, owners); keys != nil {
 		t.Errorf("usageKeys() should ignore symbols outside the module, got %v", keys)
 	}
 
 	pkgVar := types.NewVar(token.NoPos, libPkg, "DefaultConfig", types.Typ[types.String])
-	want := []string{"example.com/lib.DefaultConfig"}
-	if keys := usageKeys(pkgVar, imports); !reflect.DeepEqual(keys, want) {
-		t.Errorf("usageKeys() = %v, want %v", keys, want)
+	want = []string{"example.com/lib.DefaultConfig"}
+	if keys := usageKeys(pkgVar, imports, owners); !reflect.DeepEqual(keys, want) {
+		t.Errorf("usageKeys(var) = %v, want %v", keys, want)
+	}
+
+	pkgConst := types.NewConst(token.NoPos, libPkg, "MaxSize", types.Typ[types.UntypedInt], constant.MakeInt64(1))
+	want = []string{"example.com/lib.MaxSize"}
+	if keys := usageKeys(pkgConst, imports, owners); !reflect.DeepEqual(keys, want) {
+		t.Errorf("usageKeys(const) = %v, want %v", keys, want)
 	}
 }
 

@@ -93,6 +93,33 @@ func TestFormatText(t *testing.T) {
 			},
 		},
 		{
+			name: "changed type",
+			result: &analyzer.Result{
+				Module:     "github.com/example/lib",
+				OldVersion: "v1.0.0",
+				NewVersion: "v2.0.0",
+				Changes: &analyzer.Diff{
+					Changed: []analyzer.ChangedSignature{
+						{
+							Name:         "lib.Timeout",
+							Type:         "const",
+							OldSignature: "const int",
+							NewSignature: "const int64",
+							UsedIn: []analyzer.Location{
+								{File: "client.go", Line: 12},
+							},
+						},
+					},
+				},
+			},
+			verbose: true,
+			want: []string{
+				"lib.Timeout (const type changed)",
+				"const int64",
+				"Update use of lib.Timeout at client.go:12",
+			},
+		},
+		{
 			name: "interface changes",
 			result: &analyzer.Result{
 				Module:     "github.com/example/lib",

@@ -26,6 +26,13 @@ func TestFormatMarkdownBreakingChanges(t *testing.T) {
 					NewSignature: "func(ctx context.Context) error",
 					UsedIn:       []analyzer.Location{{File: "config/load.go", Line: 23}},
 				},
+				{
+					Name:         "lib.Config.Port",
+					Type:         "field",
+					OldSignature: "int",
+					NewSignature: "string",
+					UsedIn:       []analyzer.Location{{File: "main.go", Line: 30}},
+				},
 			},
 			InterfaceChanges: []analyzer.InterfaceChange{
 				{
@@ -47,10 +54,12 @@ func TestFormatMarkdownBreakingChanges(t *testing.T) {
 
 	for _, want := range []string{
 		"### `example.com/lib` v1.0.0 → v2.0.0",
-		"⚠️ **3 breaking changes** affecting **7 locations** in this project.",
+		"⚠️ **4 breaking changes** affecting **8 locations** in this project.",
 		"| Change | Symbol | Used in |",
 		"| Removed function | `lib.OldHelper` | `main.go:12`, `a.go:1`, `b.go:2`, +2 more |",
 		"| Signature changed | `lib.Config.Validate` | `config/load.go:23` |",
+		"| Type of field changed | `lib.Config.Port` | `main.go:30` |",
+		"- int\n+ string",
 		"| Interface changed | `lib.Handler` | `handlers/http.go:67` |",
 		"<details>",
 		"- func(strict bool) error\n+ func(ctx context.Context) error",

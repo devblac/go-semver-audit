@@ -184,9 +184,9 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 
 1. **Load the Project**: Type-check your module, test files included, and read the dependency's current version
 2. **Fetch Versions**: Download both versions with `go mod download` (cached in the module cache)
-3. **Extract APIs**: Type-check the dependency packages you import, in both versions, and collect their exported functions, methods, types, and interfaces
+3. **Extract APIs**: Type-check the dependency packages you import, in both versions, and collect their exported functions, methods, types, interfaces, variables, constants, and struct fields
 4. **Analyze Usage**: Find every exported symbol of the dependency your code uses, matched by package and receiver type
-5. **Diff & Compare**: Identify removed symbols, changed signatures, and modified interfaces
+5. **Diff & Compare**: Identify removed symbols, changed signatures, changed types of variables, constants and struct fields, changed underlying types (`type ID int` → `type ID string`), and modified interfaces
 6. **Generate Report**: Output only the changes that affect symbols you use
 
 ## Limitations
@@ -195,7 +195,7 @@ This tool performs **static analysis only** and has inherent limitations:
 
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
 - **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
-- **Not compared yet**: Exported variables and constants, struct fields, and changes to a type's underlying definition
+- **Not compared yet**: Constant *values*, methods' pointer vs. value receivers, and adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`); fields are only tracked on exported struct types, not when promoted from an unexported embedded one
 - **Possible false positives**: A changed interface is reported wherever it is used, although adding a method only breaks code that *implements* it; renaming a *type* parameter of a generic function is reported as a signature change
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly

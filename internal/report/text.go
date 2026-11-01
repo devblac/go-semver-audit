@@ -60,7 +60,11 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 	if len(changes.Changed) > 0 {
 		b.WriteString("Changed Signatures:\n")
 		for _, changed := range changes.Changed {
-			b.WriteString(fmt.Sprintf("  - %s\n", changed.Name))
+			if changed.IsTypeChange() {
+				b.WriteString(fmt.Sprintf("  - %s (%s type changed)\n", changed.Name, changed.Type))
+			} else {
+				b.WriteString(fmt.Sprintf("  - %s\n", changed.Name))
+			}
 			if verbose {
 				b.WriteString(fmt.Sprintf("    Old: %s\n", changed.OldSignature))
 				b.WriteString(fmt.Sprintf("    New: %s\n", changed.NewSignature))
@@ -131,7 +135,11 @@ func summarizeFixes(changes *analyzer.Diff, max int) []string {
 		if len(changed.UsedIn) == 0 {
 			continue
 		}
-		fixes = append(fixes, fmt.Sprintf("Update call to %s at %s", changed.Name, formatLocations(changed.UsedIn, 1)))
+		action := "Update call to"
+		if changed.IsTypeChange() {
+			action = "Update use of"
+		}
+		fixes = append(fixes, fmt.Sprintf("%s %s at %s", action, changed.Name, formatLocations(changed.UsedIn, 1)))
 	}
 
 	for _, iface := range changes.InterfaceChanges {
