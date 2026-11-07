@@ -66,17 +66,6 @@ func TestFormatJSON(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "with unused dependencies",
-			result: &analyzer.Result{
-				Module:     "github.com/example/lib",
-				OldVersion: "v1.0.0",
-				NewVersion: "v1.1.0",
-				Changes:    &analyzer.Diff{},
-				UnusedDeps: []string{"github.com/unused/dep"},
-			},
-			wantErr: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -127,11 +116,6 @@ func TestFormatJSON(t *testing.T) {
 				// Validate interface changes
 				if len(report.InterfaceChanges) != len(tt.result.Changes.InterfaceChanges) {
 					t.Errorf("JSONReport.InterfaceChanges count = %d, want %d", len(report.InterfaceChanges), len(tt.result.Changes.InterfaceChanges))
-				}
-
-				// Validate unused dependencies
-				if len(report.UnusedDeps) != len(tt.result.UnusedDeps) {
-					t.Errorf("JSONReport.UnusedDeps count = %d, want %d", len(report.UnusedDeps), len(tt.result.UnusedDeps))
 				}
 			}
 		})

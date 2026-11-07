@@ -63,8 +63,6 @@ type htmlData struct {
 	Changed           []htmlChanged
 	Interfaces        []htmlInterface
 	Added             []htmlAdded
-	UnusedDeps        []string
-	HasUnusedDeps     bool
 }
 
 func buildHTMLData(result *analyzer.Result) htmlData {
@@ -75,8 +73,6 @@ func buildHTMLData(result *analyzer.Result) htmlData {
 		Breaking:          result.HasBreakingChanges(),
 		SummaryCount:      len(result.Changes.Removed) + len(result.Changes.Changed) + len(result.Changes.InterfaceChanges),
 		AffectedLocations: countAffectedLocations(result.Changes),
-		HasUnusedDeps:     len(result.UnusedDeps) > 0,
-		UnusedDeps:        result.UnusedDeps,
 	}
 
 	for _, removed := range result.Changes.Removed {
@@ -159,10 +155,6 @@ const htmlTemplate = `<!DOCTYPE html>
         <div class="label">Affected locations</div>
         <div>{{.AffectedLocations}}</div>
       </div>
-      <div class="card">
-        <div class="label">Unused dependencies</div>
-        <div>{{len .UnusedDeps}}</div>
-      </div>
     </div>
   </section>
 
@@ -217,14 +209,6 @@ const htmlTemplate = `<!DOCTYPE html>
   </section>
   {{end}}
 
-  {{if .HasUnusedDeps}}
-  <section>
-    <h2>Unused dependencies</h2>
-    <ul>
-      {{range .UnusedDeps}}<li>{{.}}</li>{{end}}
-    </ul>
-  </section>
-  {{end}}
 </body>
 </html>
 `

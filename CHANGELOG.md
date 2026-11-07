@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+- `-unused` and `-strict` have no effect and print a warning; they are still accepted so existing scripts don't fail with "flag provided but not defined", and will be removed in a later release. Unused dependency detection compared import paths with module paths and reported dependencies that were in use; `go mod tidy` already removes unused dependencies reliably. It was the only source of warnings, so `-strict` has nothing left to act on. (Before this, `-strict` also failed on every upgrade, because it counted added symbols as warnings)
+
 ### Added
 - GitHub Action (`uses: devblac/go-semver-audit@...`) that audits every direct dependency a pull request upgrades - such as a Dependabot or Renovate PR - and posts the result as a PR comment, updated in place on later pushes. Also writes a job summary, exposes `breaking`/`upgrades`/`report` outputs, and can fail the check on breaking changes. Analysis runs against the PR's base commit, where the project is known to build. In a monorepo each module (`working-directory`) keeps its own comment, and when a later push leaves no upgrades the earlier comment is updated to say so
 - `-markdown` output: a GitHub-flavored Markdown report for pull request comments and job summaries, with a table of breaking changes and collapsible signature details
@@ -23,9 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Methods of a type that was removed entirely are no longer listed separately from the type, which counted one break several times over
 - `_test.go` files are now part of the usage analysis. Dependencies used only from tests (testify is the most common Go dependency bump) were reported as "module not found in project dependencies", and breaking changes in them went undetected
 - Interface methods are compared and reported as `Name(params) results` instead of `func (example.com/pkg.Iface).Name(...)`. Besides being noisy, the receiver in the old form is the *embedded* interface for promoted methods, so a version that inlined an embedded interface reported its methods as removed and added at once
-- Reports are now deterministic. Symbols, interface methods, usage locations and unused dependencies were collected from maps and emitted in random order, so repeated runs over the same versions produced different output
-- `-strict` no longer treats added symbols as warnings. Almost every upgrade adds something, so the flag failed on every upgrade and was unusable as a CI signal; it now fails on unused dependencies only
-- Unused dependencies are reported as warnings even when the API diff is empty
+- Renaming a parameter or naming results is no longer reported as a signature change, for functions, methods and interface methods, including names nested in parameter types (`func F(cb func(old int))`). Signatures are compared by parameter and result types, variadicity and type parameters; reports still show the names
+- Reports are now deterministic. Symbols, interface methods and usage locations were collected from maps and emitted in random order, so repeated runs over the same versions produced different output
 
 ### Changed
 - Minimum Go version raised to 1.26 (was 1.21) to pick up `golang.org/x/tools` v0.52.0. Older x/tools releases cannot read the export data written by newer Go compilers ("export data version 4 is greater than maximum supported version 2" under Go 1.27), so the analysis failed for any project built with the current Go release. 1.26 and 1.27 are the supported Go releases
@@ -39,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI installs staticcheck v0.8.1; v0.4.7 does not compile on Go 1.27
 - Conflicting output flags (`-json`, `-html`, `-markdown`) are rejected before the analysis runs instead of after it
 - Usage locations are reported relative to the project root with forward slashes (`internal/app/handler.go:42`) instead of as absolute paths, in every output format
-- Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes (or warnings with `-strict`), `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`
+- Exit codes now distinguish failure kinds: `0` no breaking changes, `1` breaking changes, `2` the analysis could not be completed. Previously a tool failure and a detected breaking change both exited `1`, so CI could not tell them apart. Documented in `-help`
 
 ### Added
 - Initial implementation of go-semver-audit CLI tool

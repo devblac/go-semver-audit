@@ -35,6 +35,8 @@ func OldHelper() string { return "old" }
 
 func Stable() string { return "stable" }
 
+func Rename(key string) string { return key }
+
 func New() *Config { return &Config{} }
 
 type Config struct{ Name string }
@@ -67,6 +69,9 @@ func SortFunc(s []int, cmp func(a, b int) int) {}
 
 func Stable() string { return "stable" }
 
+// Only the parameter name changes, which breaks no caller
+func Rename(k string) string { return k }
+
 type Config struct{ Name string }
 
 func (c *Config) Validate(ctx context.Context) error { return nil }
@@ -94,7 +99,7 @@ import (
 
 func main() {
 	lib.SortFunc([]int{2, 1}, func(a, b int) bool { return a < b })
-	_ = lib.OldHelper() + lib.Stable() + keep.New()
+	_ = lib.OldHelper() + lib.Stable() + keep.New() + lib.Rename("x")
 	sub.Gone()
 
 	// cfg's type is never named here, so the receiver type is only reachable
@@ -178,6 +183,9 @@ func TestMain(t *testing.T) {
 	// changed method signatures went undetected entirely
 	if !has("lib.Config.Validate") {
 		t.Errorf("expected lib.Config.Validate signature change, got %+v", result.Changes.Changed)
+	}
+	if has("lib.Rename") {
+		t.Errorf("lib.Rename only renamed a parameter but was reported as changed")
 	}
 	if has("lib.Stable") {
 		t.Errorf("lib.Stable did not change but was reported")

@@ -468,6 +468,42 @@ func TestDiffAPIsMethodRemoval(t *testing.T) {
 	})
 }
 
+func TestDiffAPIsIgnoresParameterNames(t *testing.T) {
+	usage := &Usage{
+		Symbols: map[string][]Location{
+			"example.com/lib.Get":     {{File: "main.go", Line: 3}},
+			"example.com/lib.Handler": {{File: "main.go", Line: 4}},
+		},
+	}
+	oldAPI := &API{
+		Funcs: map[string]*Function{
+			"example.com/lib.Get": {Name: "Get", Signature: "func(key string) error", SignatureKey: "(string) (error)"},
+		},
+		Interfaces: map[string]*Interface{
+			"example.com/lib.Handler": {
+				Name: "Handler", Methods: []string{"Handle(req string) error"}, MethodKeys: []string{"Handle(string) (error)"},
+			},
+		},
+	}
+	newAPI := &API{
+		Funcs: map[string]*Function{
+			"example.com/lib.Get": {Name: "Get", Signature: "func(k string) error", SignatureKey: "(string) (error)"},
+		},
+		Interfaces: map[string]*Interface{
+			"example.com/lib.Handler": {
+				Name: "Handler", Methods: []string{"Handle(r string) error"}, MethodKeys: []string{"Handle(string) (error)"},
+			},
+		},
+	}
+
+	diff := diffAPIs(oldAPI, newAPI, usage)
+
+	// Renaming parameters breaks no caller and no implementer
+	if len(diff.Changed) != 0 || len(diff.InterfaceChanges) != 0 || len(diff.Removed) != 0 {
+		t.Fatalf("parameter renames should not be reported, got %+v", diff)
+	}
+}
+
 func TestPackageQualifier(t *testing.T) {
 	tests := []struct {
 		module, pkgPath, pkgName, want string
