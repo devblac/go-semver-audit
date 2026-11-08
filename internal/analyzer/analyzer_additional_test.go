@@ -233,7 +233,7 @@ func TestLoadModuleAPI(t *testing.T) {
 	defer restore()
 
 	a := &Analyzer{projectPath: "."}
-	api, err := a.loadModuleAPI("example.com/lib", "latest", []string{"example.com/lib"})
+	api, err := a.loadModuleAPI("example.com/lib", "latest", []string{"example.com/lib"}, "example.com/lib")
 	if err != nil {
 		t.Fatalf("loadModuleAPI() error = %v", err)
 	}
@@ -427,7 +427,7 @@ func TestLoadModuleAPIFailsOnPackageErrors(t *testing.T) {
 	defer restore()
 
 	a := &Analyzer{projectPath: "."}
-	_, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib"})
+	_, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib"}, "example.com/lib")
 	if err == nil || !strings.Contains(err.Error(), "undefined: Foo") {
 		t.Fatalf("loadModuleAPI() expected package error, got %v", err)
 	}
@@ -446,7 +446,7 @@ func TestLoadModuleAPISkipsMissingPackages(t *testing.T) {
 	defer restore()
 
 	a := &Analyzer{projectPath: "."}
-	api, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib/gone"})
+	api, err := a.loadModuleAPI("example.com/lib", "v1.0.0", []string{"example.com/lib/gone"}, "example.com/lib")
 	if err != nil {
 		t.Fatalf("loadModuleAPI() error = %v", err)
 	}
@@ -462,7 +462,7 @@ func TestLoadModuleAPIDownloadError(t *testing.T) {
 	defer restoreDownload()
 
 	a := &Analyzer{projectPath: "."}
-	_, err := a.loadModuleAPI("example.com/lib", "v9.9.9", []string{"example.com/lib"})
+	_, err := a.loadModuleAPI("example.com/lib", "v9.9.9", []string{"example.com/lib"}, "example.com/lib")
 	if err == nil || !strings.Contains(err.Error(), "unknown revision") {
 		t.Fatalf("loadModuleAPI() expected download error, got %v", err)
 	}

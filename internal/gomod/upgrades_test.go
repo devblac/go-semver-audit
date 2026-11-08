@@ -46,11 +46,52 @@ require (
 	want := []Upgrade{
 		// A downgrade is still a version change the project has to survive
 		{Module: "example.com/downgraded", OldVersion: "v1.5.0", NewVersion: "v1.4.0"},
+		// The module path changes with the major version
+		{Module: "example.com/major/v2", OldModule: "example.com/major", OldVersion: "v1.4.0", NewVersion: "v2.0.0"},
 		{Module: "github.com/stretchr/testify", OldVersion: "v1.8.0", NewVersion: "v1.9.0"},
 		{Module: "golang.org/x/exp", OldVersion: "v0.0.0-20230713183714-613f0c0eb8a1", NewVersion: "v0.0.0-20230801115018-d63ba01acd4b"},
 	}
-	// Not listed: unchanged, added, removed, the /v2 path change, and the
-	// indirect golang.org/x/sys bump
+	// Not listed: unchanged, added, removed, and the indirect golang.org/x/sys
+	// bump
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("DirectUpgrades() =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestDirectUpgradesMajorVersions(t *testing.T) {
+	oldGoMod := `module example.com/app
+
+go 1.24.0
+
+require (
+	gopkg.in/yaml.v2 v2.4.0
+	example.com/kept v1.0.0
+	example.com/both v1.0.0
+	example.com/both/v2 v2.1.0
+)
+`
+	newGoMod := `module example.com/app
+
+go 1.24.0
+
+require (
+	gopkg.in/yaml.v3 v3.0.1
+	example.com/kept v1.0.0
+	example.com/kept/v2 v2.0.0
+	example.com/both/v3 v3.0.0
+)
+`
+
+	got, err := DirectUpgrades([]byte(oldGoMod), []byte(newGoMod))
+	if err != nil {
+		t.Fatalf("DirectUpgrades() error = %v", err)
+	}
+
+	want := []Upgrade{
+		{Module: "gopkg.in/yaml.v3", OldModule: "gopkg.in/yaml.v2", OldVersion: "v2.4.0", NewVersion: "v3.0.1"},
+	}
+	// Not listed: example.com/kept/v2 is required next to example.com/kept,
+	// and example.com/both/v3 could replace either of two dropped versions
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("DirectUpgrades() =\n%+v\nwant\n%+v", got, want)
 	}

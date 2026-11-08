@@ -16,7 +16,12 @@ const markdownMaxLocations = 3
 func FormatMarkdown(result *analyzer.Result) (string, error) {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "### `%s` %s → %s\n\n", result.Module, result.OldVersion, result.NewVersion)
+	if result.OldModule != "" {
+		// Major version upgrade: the module path changes too
+		fmt.Fprintf(&b, "### `%s` %s → `%s` %s\n\n", result.OldModule, result.OldVersion, result.Module, result.NewVersion)
+	} else {
+		fmt.Fprintf(&b, "### `%s` %s → %s\n\n", result.Module, result.OldVersion, result.NewVersion)
+	}
 
 	changes := result.Changes
 	if changes == nil {

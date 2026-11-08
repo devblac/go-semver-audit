@@ -4,14 +4,21 @@ import "strings"
 
 // Upgrade represents a dependency upgrade specification
 type Upgrade struct {
-	Module     string
+	Module string
+	// OldModule is the module the project requires today. Analyze sets it:
+	// Module itself, or for a major version upgrade the earlier major version
+	// Module replaces (example.com/lib for example.com/lib/v2).
+	OldModule  string
 	OldVersion string
 	NewVersion string
 }
 
 // Result contains the analysis results
 type Result struct {
-	Module     string
+	Module string // the module upgraded to
+	// OldModule is the module upgraded from when its path differs from
+	// Module, as in a major version upgrade; empty otherwise
+	OldModule  string
 	OldVersion string
 	NewVersion string
 	Changes    *Diff
@@ -174,7 +181,12 @@ type Location struct {
 	Line int
 }
 
-// Diff represents the differences between two API surfaces
+// Diff represents the differences between two API surfaces.
+//
+// Every entry's Package is the import path as the project uses it today. After
+// a major version upgrade that is the old module's path (example.com/lib/sub,
+// not example.com/lib/v2/sub), for added symbols too, so entries for one
+// package sort together and match the imports in the project's code.
 type Diff struct {
 	Removed          []RemovedSymbol
 	Added            []AddedSymbol

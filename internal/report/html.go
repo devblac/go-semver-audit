@@ -54,6 +54,7 @@ type htmlAdded struct {
 
 type htmlData struct {
 	Module            string
+	OldModule         string // set when a major version upgrade changes the path
 	OldVersion        string
 	NewVersion        string
 	Breaking          bool
@@ -68,6 +69,7 @@ type htmlData struct {
 func buildHTMLData(result *analyzer.Result) htmlData {
 	data := htmlData{
 		Module:            result.Module,
+		OldModule:         result.OldModule,
 		OldVersion:        result.OldVersion,
 		NewVersion:        result.NewVersion,
 		Breaking:          result.HasBreakingChanges(),
@@ -117,7 +119,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>go-semver-audit: {{.Module}} {{.OldVersion}} → {{.NewVersion}}</title>
+  <title>go-semver-audit: {{template "upgrade" .}}</title>
   <style>
     :root { color-scheme: light dark; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 24px; line-height: 1.5; background: #0f1116; color: #e7ecf3; }
@@ -140,7 +142,7 @@ const htmlTemplate = `<!DOCTYPE html>
 <body>
   <section>
     <h1>go-semver-audit</h1>
-    <div class="muted">{{.Module}} {{.OldVersion}} → {{.NewVersion}}</div>
+    <div class="muted">{{template "upgrade" .}}</div>
     {{if .Breaking}}<span class="pill warn">Breaking changes detected</span>{{else}}<span class="pill ok">No breaking changes</span>{{end}}
   </section>
 
@@ -211,6 +213,10 @@ const htmlTemplate = `<!DOCTYPE html>
 
 </body>
 </html>
+{{- define "upgrade"}}
+{{- /* A major version upgrade changes the module path, so show both */ -}}
+{{if .OldModule}}{{.OldModule}} {{.OldVersion}} → {{.Module}} {{.NewVersion}}{{else}}{{.Module}} {{.OldVersion}} → {{.NewVersion}}{{end}}
+{{- end}}
 `
 
 // join provides comma-separated lists inside templates.

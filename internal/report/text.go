@@ -11,9 +11,15 @@ import (
 func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 	var b strings.Builder
 
-	// Header
-	b.WriteString(fmt.Sprintf("Analyzing upgrade: %s %s -> %s\n\n",
-		result.Module, result.OldVersion, result.NewVersion))
+	// Header. A major version upgrade changes the module path, so both
+	// paths are shown.
+	if result.OldModule != "" {
+		b.WriteString(fmt.Sprintf("Analyzing upgrade: %s %s -> %s %s\n\n",
+			result.OldModule, result.OldVersion, result.Module, result.NewVersion))
+	} else {
+		b.WriteString(fmt.Sprintf("Analyzing upgrade: %s %s -> %s\n\n",
+			result.Module, result.OldVersion, result.NewVersion))
+	}
 
 	// Check if there are any breaking changes
 	hasBreaking := result.HasBreakingChanges()

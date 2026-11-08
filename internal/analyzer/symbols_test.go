@@ -99,8 +99,8 @@ func TestSignatureKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			oldKey := signatureKey(signatureOf(t, tt.old))
-			newKey := signatureKey(signatureOf(t, tt.new))
+			oldKey := keyRenderer{}.signatureKey(signatureOf(t, tt.old))
+			newKey := keyRenderer{}.signatureKey(signatureOf(t, tt.new))
 			if (oldKey == newKey) != tt.same {
 				t.Errorf("signatureKey() old %q, new %q: same = %v, want %v", oldKey, newKey, oldKey == newKey, tt.same)
 			}

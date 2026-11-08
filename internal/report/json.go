@@ -9,6 +9,7 @@ import (
 // JSONReport represents the JSON output structure
 type JSONReport struct {
 	Module            string                `json:"module"`
+	OldModule         string                `json:"old_module,omitempty"` // set when a major version upgrade changes the path
 	OldVersion        string                `json:"old_version"`
 	NewVersion        string                `json:"new_version"`
 	Breaking          bool                  `json:"breaking"`
@@ -65,6 +66,7 @@ type Location struct {
 func FormatJSON(result *analyzer.Result) (string, error) {
 	report := JSONReport{
 		Module:            result.Module,
+		OldModule:         result.OldModule,
 		OldVersion:        result.OldVersion,
 		NewVersion:        result.NewVersion,
 		Breaking:          result.HasBreakingChanges(),

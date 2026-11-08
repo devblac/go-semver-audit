@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -53,15 +54,29 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 		return nil, fmt.Errorf("failed to load project: %w", err)
 	}
 
-	// Get current version from project dependencies
+	// Get current version from project dependencies. A major version upgrade
+	// changes the module path, so the project requires an earlier major
+	// version under another path, which is what the new one is compared to.
+	upgrade.OldModule = upgrade.Module
 	currentVersion, err := a.getCurrentVersion(upgrade.Module)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine current version: %w", err)
+		oldModule, findErr := previousMajor(upgrade.Module, a.dependencyModules())
+		if findErr != nil {
+			return nil, fmt.Errorf("failed to determine current version: %w", findErr)
+		}
+		if oldModule == "" {
+			return nil, fmt.Errorf("failed to determine current version: %w", err)
+		}
+		upgrade.OldModule = oldModule
+		if currentVersion, err = a.getCurrentVersion(oldModule); err != nil {
+			return nil, fmt.Errorf("failed to determine current version: %w", err)
+		}
 	}
 	upgrade.OldVersion = currentVersion
 
-	// Find usage of the dependency in the project
-	usage := a.findUsage(upgrade.Module)
+	// Find usage of the dependency in the project. Usage, and every symbol key
+	// diffed against it, is in terms of the old module's package paths.
+	usage := a.findUsage(upgrade.OldModule)
 	pkgPaths := make([]string, 0, len(usage.Imports))
 	for pkgPath := range usage.Imports {
 		pkgPaths = append(pkgPaths, pkgPath)
@@ -69,12 +84,12 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 	sort.Strings(pkgPaths)
 
 	// Load API surface of the imported packages for old and new versions
-	oldAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.OldVersion, pkgPaths)
+	oldAPI, err := a.loadModuleAPI(upgrade.OldModule, upgrade.OldVersion, pkgPaths, upgrade.OldModule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load old API: %w", err)
 	}
 
-	newAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.NewVersion, pkgPaths)
+	newAPI, err := a.loadModuleAPI(upgrade.Module, upgrade.NewVersion, pkgPaths, upgrade.OldModule)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load new API: %w", err)
 	}
@@ -84,12 +99,16 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 	// Diff the APIs
 	diff := diffAPIs(oldAPI, newAPI, usage)
 
-	return &Result{
+	result := &Result{
 		Module:     upgrade.Module,
 		OldVersion: upgrade.OldVersion,
 		NewVersion: upgrade.NewVersion,
 		Changes:    diff,
-	}, nil
+	}
+	if upgrade.OldModule != upgrade.Module {
+		result.OldModule = upgrade.OldModule
+	}
+	return result, nil
 }
 
 // loadProject loads the Go packages for the project
@@ -133,6 +152,57 @@ func (a *Analyzer) getCurrentVersion(module string) (string, error) {
 	}
 
 	return "", fmt.Errorf("module %s not found in project dependencies", module)
+}
+
+// dependencyModules returns the path of every module the project's packages
+// import from
+func (a *Analyzer) dependencyModules() []string {
+	seen := make(map[string]bool)
+	var paths []string
+	for _, pkg := range a.pkgs {
+		for _, dep := range a.getDependencyModules(pkg) {
+			if !seen[dep.Path] {
+				seen[dep.Path] = true
+				paths = append(paths, dep.Path)
+			}
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// previousMajor finds the dependency that target is another major version of:
+// the one whose path differs from target only in its major version suffix
+// (example.com/lib and example.com/lib/v2, or gopkg.in/yaml.v2 and
+// gopkg.in/yaml.v3). It returns "" if there is none.
+func previousMajor(target string, deps []string) (string, error) {
+	prefix, _, ok := module.SplitPathVersion(target)
+	if !ok {
+		return "", nil
+	}
+	if err := module.CheckPath(target); err != nil {
+		return "", fmt.Errorf("invalid module path: %w", err)
+	}
+
+	var matches []string
+	for _, dep := range deps {
+		if dep == target {
+			continue
+		}
+		if depPrefix, _, ok := module.SplitPathVersion(dep); ok && depPrefix == prefix {
+			matches = append(matches, dep)
+		}
+	}
+	if len(matches) > 1 {
+		// Each major version is a separate module the project may use side
+		// by side; guessing would leave the usage of the others unchecked
+		return "", fmt.Errorf("module %s not found in project dependencies, and it could replace any of %s",
+			target, strings.Join(matches, ", "))
+	}
+	if len(matches) == 0 {
+		return "", nil
+	}
+	return matches[0], nil
 }
 
 // getDependencyModules extracts dependency modules from a package
@@ -235,9 +305,17 @@ func hasGoPackage(dir string) bool {
 }
 
 // loadModuleAPI loads the exported API surface of the given packages of
-// module@version. Packages that do not exist in that version are skipped, so
-// their symbols show up as removed when diffed against a version that has them.
-func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*API, error) {
+// modulePath@version. Packages that do not exist in that version are skipped,
+// so their symbols show up as removed when diffed against a version that has
+// them.
+//
+// pkgPaths, and the symbol keys and package paths of the returned API, are in
+// terms of keyModule, the module the project imports today. For a major
+// version upgrade modulePath is the new module and keyModule the old one:
+// example.com/lib/sub is loaded from example.com/lib/v2/sub and its symbols
+// keyed as example.com/lib/sub, so both versions' symbols line up with each
+// other and with the project's usage. Display strings keep the real paths.
+func (a *Analyzer) loadModuleAPI(modulePath, version string, pkgPaths []string, keyModule string) (*API, error) {
 	api := &API{
 		Version:    version,
 		Funcs:      make(map[string]*Function),
@@ -253,16 +331,21 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 	}
 	defer os.RemoveAll(workDir)
 
-	info, err := goModDownload(module, version, workDir)
+	info, err := goModDownload(modulePath, version, workDir)
 	if err != nil {
 		return nil, err
 	}
 	api.Version = info.Version
-	spec := fmt.Sprintf("%s@%s", module, info.Version)
+	spec := fmt.Sprintf("%s@%s", modulePath, info.Version)
+
+	var keys keyRenderer
+	if modulePath != keyModule {
+		keys.rename = func(path string) string { return rebasePath(path, modulePath, keyModule) }
+	}
 
 	var patterns []string
 	for _, pkgPath := range pkgPaths {
-		rel := strings.TrimPrefix(strings.TrimPrefix(pkgPath, module), "/")
+		rel := strings.TrimPrefix(strings.TrimPrefix(pkgPath, keyModule), "/")
 		if !hasGoPackage(filepath.Join(info.Dir, filepath.FromSlash(rel))) {
 			continue
 		}
@@ -276,7 +359,7 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 		return api, nil
 	}
 
-	modFile, err := writeModFile(module, info.Dir, workDir)
+	modFile, err := writeModFile(modulePath, info.Dir, workDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare go.mod for %s: %w", spec, err)
 	}
@@ -304,7 +387,8 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 		if pkg.Types == nil {
 			continue
 		}
-		qualifier := packageQualifier(module, pkg.PkgPath, pkg.Name)
+		qualifier := packageQualifier(modulePath, pkg.PkgPath, pkg.Name)
+		pkgPath := keys.pkgPath(pkg.PkgPath)
 		scope := pkg.Types.Scope()
 		for _, name := range scope.Names() {
 			obj := scope.Lookup(name)
@@ -315,11 +399,11 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 			switch obj := obj.(type) {
 			case *types.Func:
 				sig := obj.Type().(*types.Signature)
-				api.Funcs[symbolKey(pkg.PkgPath, obj.Name())] = &Function{
+				api.Funcs[symbolKey(pkgPath, obj.Name())] = &Function{
 					Name:         obj.Name(),
 					Signature:    sig.String(),
-					SignatureKey: signatureKey(sig),
-					PkgPath:      pkg.PkgPath,
+					SignatureKey: keys.signatureKey(sig),
+					PkgPath:      pkgPath,
 					PkgName:      qualifier,
 				}
 
@@ -328,12 +412,12 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 				if _, ok := obj.(*types.Const); ok {
 					kind = "const"
 				}
-				api.Values[symbolKey(pkg.PkgPath, obj.Name())] = &Value{
+				api.Values[symbolKey(pkgPath, obj.Name())] = &Value{
 					Name:    obj.Name(),
 					Kind:    kind,
 					Type:    obj.Type().String(),
-					TypeKey: typeKey(obj.Type()),
-					PkgPath: pkg.PkgPath,
+					TypeKey: keys.typeKey(obj.Type()),
+					PkgPath: pkgPath,
 					PkgName: qualifier,
 				}
 
@@ -350,22 +434,22 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 					methodKeys := make([]string, iface.NumMethods())
 					for i := 0; i < iface.NumMethods(); i++ {
 						methods[i] = interfaceMethodString(iface.Method(i))
-						methodKeys[i] = interfaceMethodKey(iface.Method(i))
+						methodKeys[i] = keys.interfaceMethodKey(iface.Method(i))
 					}
-					api.Interfaces[symbolKey(pkg.PkgPath, obj.Name())] = &Interface{
+					api.Interfaces[symbolKey(pkgPath, obj.Name())] = &Interface{
 						Name:       obj.Name(),
 						Methods:    methods,
 						MethodKeys: methodKeys,
-						PkgPath:    pkg.PkgPath,
+						PkgPath:    pkgPath,
 						PkgName:    qualifier,
 					}
 				} else {
 					// Regular type
-					api.Types[symbolKey(pkg.PkgPath, obj.Name())] = &Type{
+					api.Types[symbolKey(pkgPath, obj.Name())] = &Type{
 						Name:          obj.Name(),
 						Kind:          named.Underlying().String(),
-						UnderlyingKey: underlyingKey(named),
-						PkgPath:       pkg.PkgPath,
+						UnderlyingKey: keys.underlyingKey(named),
+						PkgPath:       pkgPath,
 						PkgName:       qualifier,
 					}
 
@@ -375,12 +459,12 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 							if !field.Exported() {
 								continue
 							}
-							api.Fields[methodSymbolKey(pkg.PkgPath, obj.Name(), field.Name())] = &Field{
+							api.Fields[methodSymbolKey(pkgPath, obj.Name(), field.Name())] = &Field{
 								Name:    field.Name(),
 								Recv:    obj.Name(),
 								Type:    field.Type().String(),
-								TypeKey: typeKey(field.Type()),
-								PkgPath: pkg.PkgPath,
+								TypeKey: keys.typeKey(field.Type()),
+								PkgPath: pkgPath,
 								PkgName: qualifier,
 							}
 						}
@@ -391,12 +475,12 @@ func (a *Analyzer) loadModuleAPI(module, version string, pkgPaths []string) (*AP
 						method := named.Method(i)
 						if method.Exported() {
 							sig := method.Type().(*types.Signature)
-							api.Funcs[methodSymbolKey(pkg.PkgPath, obj.Name(), method.Name())] = &Function{
+							api.Funcs[methodSymbolKey(pkgPath, obj.Name(), method.Name())] = &Function{
 								Name:         method.Name(),
 								Recv:         obj.Name(),
 								Signature:    sig.String(),
-								SignatureKey: signatureKey(sig),
-								PkgPath:      pkg.PkgPath,
+								SignatureKey: keys.signatureKey(sig),
+								PkgPath:      pkgPath,
 								PkgName:      qualifier,
 								IsMethod:     true,
 							}

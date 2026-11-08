@@ -27,6 +27,44 @@ func methodSymbolKey(pkgPath, recv, name string) string {
 	return pkgPath + "." + recv + "." + name
 }
 
+// keyRenderer renders the comparison keys of signatures and types, writing
+// every package path through rename. Keys name types by full package path, so
+// across a major version upgrade the same type reads as example.com/lib.Config
+// in the old version and example.com/lib/v2.Config in the new one; rendering
+// the new version's paths as the old ones keeps that from counting as a change.
+// The zero value leaves paths unchanged.
+type keyRenderer struct {
+	rename func(pkgPath string) string
+}
+
+// pkgPath returns the path a package is written as in keys
+func (k keyRenderer) pkgPath(path string) string {
+	if k.rename == nil {
+		return path
+	}
+	return k.rename(path)
+}
+
+// qualifier is the types.Qualifier for keys: the full, renamed package path,
+// like the nil qualifier but renamed
+func (k keyRenderer) qualifier(pkg *types.Package) string {
+	return k.pkgPath(pkg.Path())
+}
+
+// rebasePath moves a package path from module from to module to, e.g.
+// example.com/lib/sub to example.com/lib/v2/sub. Paths outside from are
+// returned unchanged; a plain string prefix is not enough, because
+// example.com/lib must not claim example.com/library.
+func rebasePath(path, from, to string) string {
+	if path == from {
+		return to
+	}
+	if rest, ok := strings.CutPrefix(path, from+"/"); ok {
+		return to + "/" + rest
+	}
+	return path
+}
+
 // signatureKey renders the parts of a signature that callers depend on: type
 // parameters, parameter and result types, and variadicity. Parameter and result
 // names are left out, so renaming a parameter - which breaks no caller - is not
@@ -34,7 +72,7 @@ func methodSymbolKey(pkgPath, recv, name string) string {
 //
 // Type parameter names are kept, because they appear inside the parameter types
 // (e.g. []E); renaming a type parameter is still reported.
-func signatureKey(sig *types.Signature) string {
+func (k keyRenderer) signatureKey(sig *types.Signature) string {
 	var b strings.Builder
 
 	if tparams := sig.TypeParams(); tparams.Len() > 0 {
@@ -46,25 +84,25 @@ func signatureKey(sig *types.Signature) string {
 			tp := tparams.At(i)
 			b.WriteString(tp.Obj().Name())
 			b.WriteString(" ")
-			b.WriteString(typeKey(tp.Constraint()))
+			b.WriteString(k.typeKey(tp.Constraint()))
 		}
 		b.WriteString("]")
 	}
 
 	b.WriteString("(")
-	writeTupleTypes(&b, sig.Params(), sig.Variadic())
+	k.writeTupleTypes(&b, sig.Params(), sig.Variadic())
 	b.WriteString(")")
 
 	if results := sig.Results(); results.Len() > 0 {
 		b.WriteString(" (")
-		writeTupleTypes(&b, results, false)
+		k.writeTupleTypes(&b, results, false)
 		b.WriteString(")")
 	}
 	return b.String()
 }
 
 // writeTupleTypes writes the types of a parameter or result list, without names
-func writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
+func (k keyRenderer) writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
 	for i := 0; i < tuple.Len(); i++ {
 		if i > 0 {
 			b.WriteString(", ")
@@ -76,7 +114,7 @@ func writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
 				t = slice.Elem()
 			}
 		}
-		b.WriteString(typeKey(t))
+		b.WriteString(k.typeKey(t))
 	}
 }
 
@@ -86,18 +124,18 @@ func writeTupleTypes(b *strings.Builder, tuple *types.Tuple, variadic bool) {
 // anonymous struct - are rendered without parameter names as well, because
 // those names are not part of type identity. Struct field names and tags are
 // part of it, and are kept. Aliases render as the type they stand for.
-func typeKey(t types.Type) string {
+func (k keyRenderer) typeKey(t types.Type) string {
 	switch t := types.Unalias(t).(type) {
 	case *types.Signature:
-		return "func" + signatureKey(t)
+		return "func" + k.signatureKey(t)
 	case *types.Pointer:
-		return "*" + typeKey(t.Elem())
+		return "*" + k.typeKey(t.Elem())
 	case *types.Slice:
-		return "[]" + typeKey(t.Elem())
+		return "[]" + k.typeKey(t.Elem())
 	case *types.Array:
-		return fmt.Sprintf("[%d]%s", t.Len(), typeKey(t.Elem()))
+		return fmt.Sprintf("[%d]%s", t.Len(), k.typeKey(t.Elem()))
 	case *types.Map:
-		return "map[" + typeKey(t.Key()) + "]" + typeKey(t.Elem())
+		return "map[" + k.typeKey(t.Key()) + "]" + k.typeKey(t.Elem())
 	case *types.Chan:
 		dir := "chan "
 		switch t.Dir() {
@@ -106,7 +144,7 @@ func typeKey(t types.Type) string {
 		case types.RecvOnly:
 			dir = "<-chan "
 		}
-		return dir + "(" + typeKey(t.Elem()) + ")"
+		return dir + "(" + k.typeKey(t.Elem()) + ")"
 	case *types.Struct:
 		var b strings.Builder
 		b.WriteString("struct{")
@@ -119,7 +157,7 @@ func typeKey(t types.Type) string {
 				b.WriteString(field.Name())
 				b.WriteString(" ")
 			}
-			b.WriteString(typeKey(field.Type()))
+			b.WriteString(k.typeKey(field.Type()))
 			if tag := t.Tag(i); tag != "" {
 				b.WriteString(" ")
 				b.WriteString(strconv.Quote(tag))
@@ -131,7 +169,7 @@ func typeKey(t types.Type) string {
 		if !t.IsMethodSet() {
 			// A constraint with type terms (~int | ~string) has no
 			// parameter names to strip
-			return types.TypeString(t, nil)
+			return types.TypeString(t, k.qualifier)
 		}
 		var b strings.Builder
 		b.WriteString("interface{")
@@ -140,7 +178,7 @@ func typeKey(t types.Type) string {
 			if i > 0 {
 				b.WriteString("; ")
 			}
-			b.WriteString(interfaceMethodKey(t.Method(i)))
+			b.WriteString(k.interfaceMethodKey(t.Method(i)))
 		}
 		b.WriteString("}")
 		return b.String()
@@ -148,7 +186,7 @@ func typeKey(t types.Type) string {
 		// Named types render by name, which also stops recursive types
 		var b strings.Builder
 		if pkg := t.Obj().Pkg(); pkg != nil {
-			b.WriteString(pkg.Path())
+			b.WriteString(k.pkgPath(pkg.Path()))
 			b.WriteString(".")
 		}
 		b.WriteString(t.Obj().Name())
@@ -158,13 +196,13 @@ func typeKey(t types.Type) string {
 				if i > 0 {
 					b.WriteString(", ")
 				}
-				b.WriteString(typeKey(args.At(i)))
+				b.WriteString(k.typeKey(args.At(i)))
 			}
 			b.WriteString("]")
 		}
 		return b.String()
 	default:
-		return types.TypeString(t, nil)
+		return types.TypeString(t, k.qualifier)
 	}
 }
 
@@ -173,17 +211,17 @@ func typeKey(t types.Type) string {
 // as just "struct": their exported fields are diffed one by one, and adding a
 // field or changing an unexported one breaks no caller that names fields.
 // Interfaces are diffed by method and are never compared this way.
-func underlyingKey(t types.Type) string {
+func (k keyRenderer) underlyingKey(t types.Type) string {
 	if _, ok := t.Underlying().(*types.Struct); ok {
 		return "struct"
 	}
-	return typeKey(t.Underlying())
+	return k.typeKey(t.Underlying())
 }
 
 // interfaceMethodKey identifies an interface method for comparison: its name
 // and signatureKey, so renaming a method's parameters is not a change.
-func interfaceMethodKey(m *types.Func) string {
-	return m.Name() + signatureKey(m.Type().(*types.Signature))
+func (k keyRenderer) interfaceMethodKey(m *types.Func) string {
+	return m.Name() + k.signatureKey(m.Type().(*types.Signature))
 }
 
 // interfaceMethodString renders an interface method as "Name(params) results",

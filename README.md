@@ -64,6 +64,16 @@ go-semver-audit -upgrade github.com/gin-gonic/gin@v1.9.0
 go-semver-audit -path ./myproject -upgrade github.com/pkg/errors@v0.9.1
 ```
 
+### Major Version Upgrades
+
+A new major version lives at a new module path (`example.com/lib` → `example.com/lib/v2`, `gopkg.in/yaml.v2` → `gopkg.in/yaml.v3`). Pass the new path; the dependency your project requires today is found by its path without the major version suffix:
+
+```bash
+go-semver-audit -upgrade example.com/lib/v2@v2.0.0   # the project requires example.com/lib v1.4.0
+```
+
+Each package you import is compared with the package at the same path in the new module (`example.com/lib/sub` with `example.com/lib/v2/sub`). A signature like `func New() *lib.Config` is not reported just because `Config` now lives in `example.com/lib/v2`. The report header shows both paths (`example.com/lib v1.4.0 -> example.com/lib/v2 v2.0.0`, and `old_module` in JSON); each entry's package is the import path your code uses today.
+
 ### JSON Output for CI
 
 ```bash
@@ -109,7 +119,7 @@ jobs:
       - uses: devblac/go-semver-audit@main # pin a release tag or commit SHA
 ```
 
-It works out which direct dependencies the PR upgrades by comparing the base and head `go.mod`, then analyzes each one against the PR's **base** commit — the code the upgrade is being applied to. Indirect dependencies are skipped.
+It works out which direct dependencies the PR upgrades by comparing the base and head `go.mod`, then analyzes each one against the PR's **base** commit — the code the upgrade is being applied to. Indirect dependencies are skipped. A major version bump that replaces `example.com/lib` with `example.com/lib/v2` in `go.mod` is audited as an upgrade; if the old major version stays required next to the new one, the new one is a new dependency and is not audited.
 
 | Input | Description | Default |
 |-------|-------------|---------|
@@ -162,11 +172,11 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-path` | Path to Go project to analyze | `.` (current directory) |
-| `-upgrade` | Dependency upgrade in format `module@version` | (required) |
+| `-upgrade` | Dependency upgrade in format `module@version`; `module` may be a new major version path (`example.com/lib/v2`) | (required) |
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
 | `-markdown` | Output results as GitHub-flavored Markdown | `false` |
-| `-list-upgrades` | Print `module@version` for each direct dependency whose version differs between the project's `go.mod` and the given `go.mod`, then exit | - |
+| `-list-upgrades` | Print `module@version` for each direct dependency whose version differs between the project's `go.mod` and the given `go.mod`, including a major version path change that drops the old path, then exit | - |
 | `-v` | Verbose output | `false` |
 | `-help` | Show help message | - |
 
@@ -194,7 +204,7 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 This tool performs **static analysis only** and has inherent limitations:
 
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
-- **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
+- **Major versions are matched by path**: A package of the new major version is compared with the package at the same path relative to the module root, so a package that moved or was renamed in v2 is reported as removed. If the project already requires more than one major version of the module (`example.com/lib` and `example.com/lib/v2`), an upgrade to a third is ambiguous and is refused rather than guessed
 - **Not compared yet**: Constant *values*, methods' pointer vs. value receivers, and adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`); fields are only tracked on exported struct types, not when promoted from an unexported embedded one
 - **Possible false positives**: Renaming a *type* parameter of a generic function is reported as a signature change; a project type that happens to implement a library interface is counted as an implementation even if it is never used as one
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
