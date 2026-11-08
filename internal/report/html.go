@@ -10,11 +10,38 @@ import (
 
 // FormatHTML generates a self-contained HTML report.
 func FormatHTML(result *analyzer.Result) (string, error) {
-	data := buildHTMLData(result)
+	return executeHTML(htmlTitle+htmlHead+`{{template "result" .}}`+htmlFoot, buildHTMLData(result))
+}
 
+// FormatHTMLAudit generates a self-contained HTML report for several
+// upgrades: a summary, the FormatHTML sections of each analyzed module, and
+// the upgrades that were not analyzed.
+func FormatHTMLAudit(audit *Audit) (string, error) {
+	data := htmlAuditData{
+		Summary:  audit.Summary(),
+		Breaking: audit.BreakingModules() > 0,
+	}
+	for _, result := range audit.Results {
+		data.Results = append(data.Results, buildHTMLData(result))
+	}
+	for _, failure := range audit.Failed {
+		data.Failed = append(data.Failed, htmlFailure{
+			Upgrade: upgradeLabel(failure.Module, failure.OldVersion, failure.NewVersion, "→"),
+			Error:   strings.TrimSpace(failure.Error),
+		})
+	}
+	for _, upgrade := range audit.NotImported {
+		data.NotImported = append(data.NotImported,
+			upgradeLabel(upgrade.Module, upgrade.OldVersion, upgrade.NewVersion, "→"))
+	}
+	return executeHTML(htmlAuditTitle+htmlHead+htmlAuditBody+htmlFoot, data)
+}
+
+// executeHTML renders a page built from the template pieces below
+func executeHTML(page string, data any) (string, error) {
 	tmpl, err := template.New("report").Funcs(template.FuncMap{
 		"join": join,
-	}).Parse(htmlTemplate)
+	}).Parse(htmlResult + page)
 	if err != nil {
 		return "", err
 	}
@@ -25,6 +52,19 @@ func FormatHTML(result *analyzer.Result) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+type htmlFailure struct {
+	Upgrade string
+	Error   string
+}
+
+type htmlAuditData struct {
+	Summary     string
+	Breaking    bool
+	Results     []htmlData
+	Failed      []htmlFailure
+	NotImported []string
 }
 
 type htmlRemoved struct {
@@ -111,13 +151,17 @@ func buildHTMLData(result *analyzer.Result) htmlData {
 	return data
 }
 
+// The HTML page is assembled from these pieces. A single-upgrade report is
+// htmlTitle + htmlHead + the "result" template + htmlFoot; a multi-upgrade
+// report reuses the head, foot and "result" around its own summary.
+
 // Minimal, self-contained HTML with light styling for quick sharing.
-const htmlTemplate = `<!DOCTYPE html>
+const htmlHead = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>go-semver-audit: {{.Module}} {{.OldVersion}} → {{.NewVersion}}</title>
+  <title>{{template "title" .}}</title>
   <style>
     :root { color-scheme: light dark; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 24px; line-height: 1.5; background: #0f1116; color: #e7ecf3; }
@@ -138,7 +182,12 @@ const htmlTemplate = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <section>
+`
+
+const htmlTitle = `{{define "title"}}go-semver-audit: {{.Module}} {{.OldVersion}} → {{.NewVersion}}{{end}}`
+
+// htmlResult defines the sections reporting one upgrade
+const htmlResult = `{{define "result"}}  <section>
     <h1>go-semver-audit</h1>
     <div class="muted">{{.Module}} {{.OldVersion}} → {{.NewVersion}}</div>
     {{if .Breaking}}<span class="pill warn">Breaking changes detected</span>{{else}}<span class="pill ok">No breaking changes</span>{{end}}
@@ -209,8 +258,42 @@ const htmlTemplate = `<!DOCTYPE html>
   </section>
   {{end}}
 
-</body>
+{{end}}`
+
+const htmlFoot = `</body>
 </html>
+`
+
+const htmlAuditTitle = `{{define "title"}}go-semver-audit: {{len .Results}} upgrade(s) analyzed{{end}}`
+
+const htmlAuditBody = `  <section>
+    <h1>go-semver-audit</h1>
+    <div class="muted">{{.Summary}}</div>
+    {{if .Breaking}}<span class="pill warn">Breaking changes detected</span>{{else if .Failed}}<span class="pill warn">Some upgrades could not be analyzed</span>{{else}}<span class="pill ok">No breaking changes</span>{{end}}
+  </section>
+
+{{range .Results}}{{template "result" .}}{{end}}
+  {{if .Failed}}
+  <section>
+    <h2>Could not be analyzed</h2>
+    {{range .Failed}}
+      <div class="stacked">
+        <strong>{{.Upgrade}}</strong>
+        <pre><code>{{.Error}}</code></pre>
+      </div>
+    {{end}}
+  </section>
+  {{end}}
+
+  {{if .NotImported}}
+  <section>
+    <h2>Not imported by the project</h2>
+    {{range .NotImported}}
+      <div class="stacked">{{.}}</div>
+    {{end}}
+  </section>
+  {{end}}
+
 `
 
 // join provides comma-separated lists inside templates.

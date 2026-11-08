@@ -24,10 +24,18 @@ var (
 	goModDownload       = downloadModule
 )
 
+// ErrModuleNotImported is returned by Analyze when no package of the project,
+// tests included, imports the module being upgraded, so there is no usage to
+// check it against.
+var ErrModuleNotImported = errors.New("not found in project dependencies")
+
 // Analyzer performs static analysis on Go projects
 type Analyzer struct {
 	projectPath string
 	pkgs        []*packages.Package
+	// loaded is set once the project has been type-checked. Upgrades leave
+	// the project untouched, so one load serves every module analyzed.
+	loaded bool
 }
 
 // New creates a new Analyzer for the given project path
@@ -48,9 +56,8 @@ func New(projectPath string) (*Analyzer, error) {
 
 // Analyze performs the dependency upgrade analysis
 func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
-	// Load the project packages
-	if err := a.loadProject(); err != nil {
-		return nil, fmt.Errorf("failed to load project: %w", err)
+	if err := a.LoadProject(); err != nil {
+		return nil, err
 	}
 
 	// Get current version from project dependencies
@@ -90,6 +97,20 @@ func (a *Analyzer) Analyze(upgrade *Upgrade) (*Result, error) {
 		NewVersion: upgrade.NewVersion,
 		Changes:    diff,
 	}, nil
+}
+
+// LoadProject type-checks the project unless that was already done. Calling it
+// before analyzing several upgrades separates a project that does not build,
+// which fails them all, from a failure specific to one module.
+func (a *Analyzer) LoadProject() error {
+	if a.loaded {
+		return nil
+	}
+	if err := a.loadProject(); err != nil {
+		return fmt.Errorf("failed to load project: %w", err)
+	}
+	a.loaded = true
+	return nil
 }
 
 // loadProject loads the Go packages for the project
@@ -132,7 +153,7 @@ func (a *Analyzer) getCurrentVersion(module string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("module %s not found in project dependencies", module)
+	return "", fmt.Errorf("module %s %w", module, ErrModuleNotImported)
 }
 
 // getDependencyModules extracts dependency modules from a package

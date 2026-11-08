@@ -61,8 +61,67 @@ type Location struct {
 	Line int    `json:"line"`
 }
 
+// JSONAuditReport is the JSON output for several upgrades (-all). Results
+// holds one JSONReport per analyzed module; the arrays are never null.
+type JSONAuditReport struct {
+	Breaking    bool              `json:"breaking"`
+	Results     []JSONReport      `json:"results"`
+	Errors      []JSONAuditError  `json:"errors"`
+	NotImported []JSONAuditModule `json:"not_imported"`
+}
+
+// JSONAuditError is an upgrade that could not be analyzed
+type JSONAuditError struct {
+	Module     string `json:"module"`
+	OldVersion string `json:"old_version"`
+	NewVersion string `json:"new_version,omitempty"`
+	Error      string `json:"error"`
+}
+
+// JSONAuditModule is an upgrade that was not analyzed because the project
+// does not import the module
+type JSONAuditModule struct {
+	Module     string `json:"module"`
+	OldVersion string `json:"old_version"`
+	NewVersion string `json:"new_version"`
+}
+
 // FormatJSON generates a JSON report
 func FormatJSON(result *analyzer.Result) (string, error) {
+	return marshalJSON(buildJSONReport(result))
+}
+
+// FormatJSONAudit generates a JSON report for several upgrades
+func FormatJSONAudit(audit *Audit) (string, error) {
+	report := JSONAuditReport{
+		Breaking:    audit.BreakingModules() > 0,
+		Results:     []JSONReport{},
+		Errors:      []JSONAuditError{},
+		NotImported: []JSONAuditModule{},
+	}
+	for _, result := range audit.Results {
+		report.Results = append(report.Results, buildJSONReport(result))
+	}
+	for _, failure := range audit.Failed {
+		report.Errors = append(report.Errors, JSONAuditError(failure))
+	}
+	for _, upgrade := range audit.NotImported {
+		report.NotImported = append(report.NotImported, JSONAuditModule(upgrade))
+	}
+	return marshalJSON(report)
+}
+
+// marshalJSON renders a report as indented JSON ending in a newline
+func marshalJSON(report any) (string, error) {
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(data) + "\n", nil
+}
+
+// buildJSONReport converts one analysis result to its JSON form
+func buildJSONReport(result *analyzer.Result) JSONReport {
 	report := JSONReport{
 		Module:            result.Module,
 		OldVersion:        result.OldVersion,
@@ -138,11 +197,5 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 		})
 	}
 
-	// Marshal to JSON with indentation
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		return "", err
-	}
-
-	return string(data) + "\n", nil
+	return report
 }

@@ -54,6 +54,42 @@ func FormatMarkdown(result *analyzer.Result) (string, error) {
 	return b.String(), nil
 }
 
+// FormatMarkdownAudit generates a Markdown report for several upgrades: a
+// summary, the FormatMarkdown section of each analyzed module, and the
+// upgrades that were not analyzed.
+func FormatMarkdownAudit(audit *Audit) (string, error) {
+	var b strings.Builder
+
+	b.WriteString(audit.Summary() + ".\n\n")
+
+	for _, result := range audit.Results {
+		out, err := FormatMarkdown(result)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(out)
+	}
+
+	if len(audit.Failed) > 0 {
+		b.WriteString("### Could not be analyzed\n\n")
+		for _, failure := range audit.Failed {
+			fmt.Fprintf(&b, "%s\n\n```\n%s\n```\n\n",
+				upgradeLabel("`"+failure.Module+"`", failure.OldVersion, failure.NewVersion, "→"),
+				strings.TrimSpace(failure.Error))
+		}
+	}
+
+	if len(audit.NotImported) > 0 {
+		b.WriteString("### Not imported by this project\n\n")
+		for _, upgrade := range audit.NotImported {
+			fmt.Fprintf(&b, "- `%s` %s → %s\n", upgrade.Module, upgrade.OldVersion, upgrade.NewVersion)
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String(), nil
+}
+
 // writeMarkdownRow writes one table row for a breaking change
 func writeMarkdownRow(b *strings.Builder, change, symbol string, locations []analyzer.Location) {
 	fmt.Fprintf(b, "| %s | `%s` | %s |\n",

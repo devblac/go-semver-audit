@@ -29,6 +29,7 @@ Semantic versioning promises that minor and patch releases are compatible, but G
 - **API Diff Analysis**: Compares exported functions, methods, types, and interfaces between dependency versions
 - **Usage-Aware**: Only reports changes to APIs your code uses, test files included, with the file and line of each use
 - **Pull Request Bot**: A GitHub Action that audits every dependency a PR upgrades and comments with the result
+- **Whole-Project Audit**: `-all` checks every direct dependency that has a newer version, in one run
 - **CI-Friendly**: JSON and Markdown output, and exit codes that tell "breaking changes" apart from "analysis failed"
 - **Nothing Is Executed**: Dependency code is downloaded and type-checked, never run
 
@@ -81,6 +82,16 @@ go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -html > audit.html
 ```bash
 go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -markdown
 ```
+
+### Audit Every Available Update
+
+```bash
+go-semver-audit -all
+```
+
+`-all` asks the go command which direct dependencies have a newer version (`go list -m -u all`) and analyzes each one against the latest release within its major version, in one run. The project is type-checked once and shared across modules. The report starts with a summary line, followed by the usual report for each module and two lists: upgrades that **could not be analyzed** (with the error, e.g. a download that failed or an update lookup the proxy refused) and dependencies that are required but **not imported** by any package, which have no usage to check. One module failing does not stop the others. All output formats are supported; with `-json` the output is `{"breaking": ..., "results": [...], "errors": [...], "not_imported": [...]}`, where each entry of `results` is the object `-upgrade -json` prints.
+
+Indirect dependencies and modules with a `replace` directive are skipped, and so are new major versions (`/v2` is a different module path, which `go list -u` does not report).
 
 ## GitHub Action: Audit Dependabot and Renovate PRs
 
@@ -162,7 +173,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-path` | Path to Go project to analyze | `.` (current directory) |
-| `-upgrade` | Dependency upgrade in format `module@version` | (required) |
+| `-upgrade` | Dependency upgrade in format `module@version` | (required, unless `-all` or `-list-upgrades`) |
+| `-all` | Audit every direct dependency that has a newer version within its major version. Cannot be combined with `-upgrade` or `-list-upgrades` | `false` |
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
 | `-markdown` | Output results as GitHub-flavored Markdown | `false` |
@@ -180,6 +192,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | `1` | Breaking changes detected |
 | `2` | The analysis could not be completed |
 
+With `-all`, the exit code is `1` if any upgrade breaks the project, otherwise `2` if any upgrade could not be analyzed (or the project could not be loaded), otherwise `0`. Breaking changes take precedence so that a failure on one module never hides a break found in another; check the report's error list (or `errors` in JSON) to tell whether everything was analyzed. Dependencies the project does not import do not affect the exit code.
+
 ## How It Works
 
 1. **Load the Project**: Type-check your module, test files included, and read the dependency's current version
@@ -194,7 +208,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 This tool performs **static analysis only** and has inherent limitations:
 
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
-- **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`
+- **Major versions are not supported**: A `/v2` (or later) release is a different module path, so `-upgrade example.com/lib/v2@v2.0.0` cannot be compared against `example.com/lib`, and `-all` only looks for updates within the current major version
+- **`-all` skips replaced modules**: With a `replace` directive the project builds against the replacement, which comparing two upstream versions would not describe. `-all` also needs a module proxy (or `GOPROXY=direct`) to find newer versions
 - **Not compared yet**: Constant *values*, methods' pointer vs. value receivers, and adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`); fields are only tracked on exported struct types, not when promoted from an unexported embedded one
 - **Possible false positives**: Renaming a *type* parameter of a generic function is reported as a signature change; a project type that happens to implement a library interface is counted as an implementation even if it is never used as one
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage

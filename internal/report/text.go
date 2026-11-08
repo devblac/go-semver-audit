@@ -120,6 +120,50 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 	return b.String(), nil
 }
 
+// textSeparator sets the reports of different modules apart in FormatTextAudit
+var textSeparator = strings.Repeat("-", 60) + "\n"
+
+// FormatTextAudit generates a human-readable report for several upgrades: a
+// summary, the FormatText report of each analyzed module, and the upgrades
+// that were not analyzed.
+func FormatTextAudit(audit *Audit, verbose bool) (string, error) {
+	var b strings.Builder
+
+	b.WriteString(audit.Summary() + ".\n\n")
+
+	for _, result := range audit.Results {
+		out, err := FormatText(result, verbose)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(textSeparator)
+		b.WriteString(strings.TrimRight(out, "\n") + "\n\n")
+	}
+
+	if len(audit.Failed) > 0 {
+		b.WriteString(textSeparator)
+		b.WriteString("Could not be analyzed:\n")
+		for _, failure := range audit.Failed {
+			// go command errors can span several lines; keep them under their item
+			msg := strings.ReplaceAll(strings.TrimSpace(failure.Error), "\n", "\n    ")
+			fmt.Fprintf(&b, "  - %s\n    %s\n",
+				upgradeLabel(failure.Module, failure.OldVersion, failure.NewVersion, "->"), msg)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(audit.NotImported) > 0 {
+		b.WriteString(textSeparator)
+		b.WriteString("Not imported by any package of the project (nothing to check):\n")
+		for _, upgrade := range audit.NotImported {
+			fmt.Fprintf(&b, "  - %s\n", upgradeLabel(upgrade.Module, upgrade.OldVersion, upgrade.NewVersion, "->"))
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String(), nil
+}
+
 // summarizeFixes returns a short list of items to address first.
 func summarizeFixes(changes *analyzer.Diff, max int) []string {
 	var fixes []string
