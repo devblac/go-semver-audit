@@ -1,6 +1,9 @@
 package analyzer
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Upgrade represents a dependency upgrade specification
 type Upgrade struct {
@@ -22,10 +25,42 @@ type Result struct {
 	OldVersion string
 	NewVersion string
 	Changes    *Diff
+	// BuildErrors are the errors from type-checking the project against
+	// NewVersion. Only VerifyBuild (-verify) fills them in.
+	BuildErrors []BuildError
 }
 
-// HasBreakingChanges returns true if the result contains breaking changes
+// BuildError is a compile error in the project, or in one of its
+// dependencies, after the upgrade
+type BuildError struct {
+	File    string // relative to the project root when inside it; empty if unknown
+	Line    int    // 0 if unknown
+	Col     int    // 0 if unknown
+	Message string
+}
+
+// String renders the error as the go command does, e.g. "main.go:8:16: msg"
+func (e BuildError) String() string {
+	switch {
+	case e.File == "":
+		return e.Message
+	case e.Line == 0:
+		return fmt.Sprintf("%s: %s", e.File, e.Message)
+	case e.Col == 0:
+		return fmt.Sprintf("%s:%d: %s", e.File, e.Line, e.Message)
+	}
+	return fmt.Sprintf("%s:%d:%d: %s", e.File, e.Line, e.Col, e.Message)
+}
+
+// HasBreakingChanges returns true if the API diff found breaking changes, or
+// the project does not compile against the new version
 func (r *Result) HasBreakingChanges() bool {
+	return r.HasAPIBreakingChanges() || len(r.BuildErrors) > 0
+}
+
+// HasAPIBreakingChanges returns true if the API diff found breaking changes,
+// regardless of the compile check
+func (r *Result) HasAPIBreakingChanges() bool {
 	if r.Changes == nil {
 		return false
 	}

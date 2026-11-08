@@ -273,6 +273,86 @@ func TestRun_JSONBreakingChangesExitOne(t *testing.T) {
 	}
 }
 
+func TestRun_Verify(t *testing.T) {
+	buildErr := analyzer.BuildError{File: "main.go", Line: 6, Col: 17, Message: "too few values in struct literal"}
+
+	tests := []struct {
+		name        string
+		verify      bool
+		oldModule   string
+		buildErrors []analyzer.BuildError
+		verifyErr   error
+		wantCalls   int
+		wantExit    int
+		wantErr     bool
+	}{
+		{name: "not requested", verify: false, buildErrors: []analyzer.BuildError{buildErr}, wantCalls: 0, wantExit: -1},
+		{name: "compiles", verify: true, wantCalls: 1, wantExit: -1},
+		// Compile errors break the upgrade even when the API diff is clean
+		{name: "compile errors", verify: true, buildErrors: []analyzer.BuildError{buildErr}, wantCalls: 1, wantExit: exitBreaking},
+		// The check itself failing (e.g. go get cannot resolve the version)
+		// is a tool failure, which main turns into exitError
+		{name: "check fails", verify: true, verifyErr: errors.New("go get: unknown revision"), wantCalls: 1, wantExit: -1, wantErr: true},
+		// The project still imports the old path, so the check could only
+		// ever pass; it is skipped with a warning instead
+		{name: "major version upgrade", verify: true, oldModule: "example.com/geo/v0", buildErrors: []analyzer.BuildError{buildErr}, wantCalls: 0, wantExit: -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := stubGlobals()
+			defer restore()
+
+			stdoutWriter = &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			stderrWriter = stderr
+			exitCode := -1
+			exitFunc = func(code int) { exitCode = code }
+
+			parseUpgradeFn = func(spec string) (*analyzer.Upgrade, error) {
+				return &analyzer.Upgrade{Module: "example.com/geo", NewVersion: "latest"}, nil
+			}
+			fake := &stubAnalyzer{
+				analyzeResult: &analyzer.Result{
+					Module:     "example.com/geo",
+					OldVersion: "v1.0.0",
+					NewVersion: "v1.1.0", // "latest" resolved by the analysis
+					OldModule:  tt.oldModule,
+					Changes:    &analyzer.Diff{},
+				},
+				buildErrors: tt.buildErrors,
+				verifyErr:   tt.verifyErr,
+			}
+			newAnalyzerFn = func(path string) (analyzerClient, error) { return fake, nil }
+			var reported *analyzer.Result
+			formatTextFn = func(res *analyzer.Result, verbose bool) (string, error) {
+				reported = res
+				return "", nil
+			}
+
+			err := run(config{upgrade: "example.com/geo@latest", verify: tt.verify})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("run() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if len(fake.verifyCalls) != tt.wantCalls {
+				t.Fatalf("VerifyBuild called %d times, want %d", len(fake.verifyCalls), tt.wantCalls)
+			}
+			if tt.wantCalls > 0 && fake.verifyCalls[0] != "example.com/geo@v1.1.0" {
+				t.Errorf("VerifyBuild(%s), want the resolved version example.com/geo@v1.1.0", fake.verifyCalls[0])
+			}
+			if exitCode != tt.wantExit {
+				t.Errorf("exit code = %d, want %d", exitCode, tt.wantExit)
+			}
+			if !tt.wantErr && len(reported.BuildErrors) != len(tt.buildErrors)*tt.wantCalls {
+				t.Errorf("report got build errors %+v", reported.BuildErrors)
+			}
+			if warned := strings.Contains(stderr.String(), "-verify is skipped"); warned != (tt.oldModule != "") {
+				t.Errorf("skip warning printed = %v, want %v; stderr: %q", warned, tt.oldModule != "", stderr.String())
+			}
+		})
+	}
+}
+
 func TestRun_HTMLReport(t *testing.T) {
 	restore := stubGlobals()
 	defer restore()
@@ -495,6 +575,9 @@ func TestParseFlags(t *testing.T) {
 	if cfg.htmlOutput {
 		t.Errorf("Expected htmlOutput false, got true")
 	}
+	if cfg.verify {
+		t.Errorf("Expected verify false: the compile check is opt-in")
+	}
 }
 
 func TestConfigStruct(t *testing.T) {
@@ -533,11 +616,19 @@ type stubAnalyzer struct {
 	analyzeErr    error
 	analyzeCalls  []*analyzer.Upgrade
 	projectPath   string
+	buildErrors   []analyzer.BuildError
+	verifyErr     error
+	verifyCalls   []string
 }
 
 func (s *stubAnalyzer) Analyze(upgrade *analyzer.Upgrade) (*analyzer.Result, error) {
 	s.analyzeCalls = append(s.analyzeCalls, upgrade)
 	return s.analyzeResult, s.analyzeErr
+}
+
+func (s *stubAnalyzer) VerifyBuild(module, version string) ([]analyzer.BuildError, error) {
+	s.verifyCalls = append(s.verifyCalls, module+"@"+version)
+	return s.buildErrors, s.verifyErr
 }
 
 func stubGlobals() func() {

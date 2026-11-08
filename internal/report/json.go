@@ -19,6 +19,15 @@ type JSONReport struct {
 	Changed           []ChangedItem         `json:"changed,omitempty"`
 	InterfaceChanges  []InterfaceChangeItem `json:"interface_changes,omitempty"`
 	Added             []AddedItem           `json:"added,omitempty"`
+	BuildErrors       []BuildErrorItem      `json:"build_errors,omitempty"`
+}
+
+// BuildErrorItem represents a compile error found by -verify in JSON
+type BuildErrorItem struct {
+	File    string `json:"file,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Column  int    `json:"column,omitempty"`
+	Message string `json:"message"`
 }
 
 // RemovedItem represents a removed symbol in JSON
@@ -137,6 +146,15 @@ func FormatJSON(result *analyzer.Result) (string, error) {
 			Name:    added.Name,
 			Package: added.Package,
 			Type:    added.Type,
+		})
+	}
+
+	for _, e := range result.BuildErrors {
+		report.BuildErrors = append(report.BuildErrors, BuildErrorItem{
+			File:    e.File,
+			Line:    e.Line,
+			Column:  e.Col,
+			Message: e.Message,
 		})
 	}
 

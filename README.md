@@ -29,6 +29,7 @@ Semantic versioning promises that minor and patch releases are compatible, but G
 - **API Diff Analysis**: Compares exported functions, methods, types, and interfaces between dependency versions
 - **Usage-Aware**: Only reports changes to APIs your code uses, test files included, with the file and line of each use
 - **Pull Request Bot**: A GitHub Action that audits every dependency a PR upgrades and comments with the result
+- **Optional Compile Check**: `-verify` type-checks your project against the new version, catching breaks the API diff cannot see, without touching your files
 - **CI-Friendly**: JSON and Markdown output, and exit codes that tell "breaking changes" apart from "analysis failed"
 - **Nothing Is Executed**: Dependency code is downloaded and type-checked, never run
 
@@ -91,6 +92,26 @@ go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -html > audit.html
 ```bash
 go-semver-audit -upgrade github.com/gorilla/mux@v1.8.0 -markdown
 ```
+
+### Compile Check
+
+The API diff explains *what* changed, but misses some breaks (see [Limitations](#limitations)). With `-verify`, the project, test files included, is also type-checked against the new version, and the compile errors are reported next to the API changes:
+
+```bash
+go-semver-audit -upgrade example.com/geo@v1.1.0 -verify
+```
+
+```
+Analyzing upgrade: example.com/geo v1.0.0 -> v1.1.0
+
+⚠️  BREAKING CHANGES DETECTED
+
+Compile errors with the new version (1):
+  - main.go:6:21: too few values in struct literal of type geo.Point
+  The API diff found no breaking change that explains these errors.
+```
+
+The upgrade is applied with `go get` to temporary copies of `go.mod` and `go.sum` (passed to the go command with `-modfile`), so the dependency's own requirements are raised as in a real upgrade, and your files are never modified. It is opt-in because it is slower: the whole project and its dependencies are type-checked once more. Code is type-checked, not compiled or linked, so no C toolchain is needed beyond what the analysis already needs.
 
 ## GitHub Action: Audit Dependabot and Renovate PRs
 
@@ -176,6 +197,7 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
 | `-markdown` | Output results as GitHub-flavored Markdown | `false` |
+| `-verify` | Also type-check the project against the new version and report compile errors (slower; see [Compile Check](#compile-check)) | `false` |
 | `-list-upgrades` | Print `module@version` for each direct dependency whose version differs between the project's `go.mod` and the given `go.mod`, including a major version path change that drops the old path, then exit | - |
 | `-v` | Verbose output | `false` |
 | `-help` | Show help message | - |
@@ -187,8 +209,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | Code | Meaning |
 |------|---------|
 | `0` | No breaking changes |
-| `1` | Breaking changes detected |
-| `2` | The analysis could not be completed |
+| `1` | Breaking changes detected, or, with `-verify`, the project does not compile against the new version |
+| `2` | The analysis could not be completed (with `-verify`, also when the upgrade itself fails, e.g. `go get` cannot resolve the version) |
 
 ## How It Works
 
@@ -198,14 +220,16 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 4. **Analyze Usage**: Find every exported symbol of the dependency your code uses, matched by package and receiver type
 5. **Diff & Compare**: Identify removed symbols, interface changes that break your code (an added method where you *implement* the interface, a removed one where you *call* it), changed signatures, changed types of variables, constants and struct fields, changed underlying types (`type ID int` → `type ID string`), and modified interfaces
 6. **Generate Report**: Output only the changes that affect symbols you use
+7. **Compile Check** (with `-verify`): Apply the upgrade to temporary copies of `go.mod` and `go.sum` with `go get`, type-check the project against them, and report the compile errors
 
 ## Limitations
 
 This tool performs **static analysis only** and has inherent limitations:
 
 - **Cannot detect behavioral changes**: If a function signature stays the same but behavior changes, we won't catch it
-- **Major versions are matched by path**: A package of the new major version is compared with the package at the same path relative to the module root, so a package that moved or was renamed in v2 is reported as removed. If the project already requires more than one major version of the module (`example.com/lib` and `example.com/lib/v2`), an upgrade to a third is ambiguous and is refused rather than guessed
-- **Not compared yet**: Constant *values*, methods' pointer vs. value receivers, and adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`); fields are only tracked on exported struct types, not when promoted from an unexported embedded one
+- **Major versions are matched by path**: A package of the new major version is compared with the package at the same path relative to the module root, so a package that moved or was renamed in v2 is reported as removed. If the project already requires more than one major version of the module (`example.com/lib` and `example.com/lib/v2`), an upgrade to a third is ambiguous and is refused rather than guessed. `-verify` is skipped for major version upgrades, since the project's imports would have to be rewritten first
+- **Not compared by the API diff**: Constant *values*, methods' pointer vs. value receivers, adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`), fields promoted from an unexported embedded type, and changes in other modules the upgrade pulls in. Except for constant values, these show up as compile errors with `-verify`, which is opt-in because it is slower
+- **The compile check runs outside workspace mode**: `-verify` sets `GOWORK=off`, so a project that only builds within a `go.work` workspace reports errors that are not caused by the upgrade
 - **Possible false positives**: Renaming a *type* parameter of a generic function is reported as a signature change; a project type that happens to implement a library interface is counted as an implementation even if it is never used as one
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly
@@ -221,6 +245,8 @@ This tool performs **static analysis only** and has inherent limitations:
 **`module ... not found in project dependencies`**: No package of your module imports the dependency, tests included. It may be an indirect dependency, or imported only under build tags that are not active on your platform.
 
 **`packages contain errors`**: The project, including its tests, must compile at its *current* dependency versions. Check with `go vet ./...`.
+
+**`compile check failed: go get ...`**: With `-verify`, `go get module@version` could not apply the upgrade, for example because the version does not exist or conflicts with another requirement. The error is the go command's own; nothing was written to your `go.mod`.
 
 **The first run is slow**: Both versions of the dependency, and their own dependencies, are downloaded and type-checked. Later runs reuse the module and build caches.
 

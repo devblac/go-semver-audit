@@ -64,6 +64,10 @@ type htmlData struct {
 	Changed           []htmlChanged
 	Interfaces        []htmlInterface
 	Added             []htmlAdded
+	BuildErrors       []string
+	// UnexplainedBuild is set when the project does not compile but the API
+	// diff found nothing that explains it
+	UnexplainedBuild bool
 }
 
 func buildHTMLData(result *analyzer.Result) htmlData {
@@ -109,6 +113,11 @@ func buildHTMLData(result *analyzer.Result) htmlData {
 			Type: added.Type,
 		})
 	}
+
+	for _, e := range result.BuildErrors {
+		data.BuildErrors = append(data.BuildErrors, e.String())
+	}
+	data.UnexplainedBuild = len(result.BuildErrors) > 0 && !result.HasAPIBreakingChanges()
 
 	return data
 }
@@ -157,6 +166,12 @@ const htmlTemplate = `<!DOCTYPE html>
         <div class="label">Affected locations</div>
         <div>{{.AffectedLocations}}</div>
       </div>
+      {{- if .BuildErrors}}
+      <div class="card">
+        <div class="label">Compile errors</div>
+        <div>{{len .BuildErrors}}</div>
+      </div>
+      {{- end}}
     </div>
   </section>
 
@@ -199,6 +214,17 @@ const htmlTemplate = `<!DOCTYPE html>
     {{end}}
   </section>
   {{end}}
+
+  {{- if .BuildErrors}}
+
+  <section>
+    <h2>Compile errors with the new version</h2>
+    {{if .UnexplainedBuild}}<div class="muted">The API diff found no breaking change that explains these errors.</div>{{end}}
+    {{range .BuildErrors}}
+      <div class="stacked"><code>{{.}}</code></div>
+    {{end}}
+  </section>
+  {{- end}}
 
   {{if .Added}}
   <section>

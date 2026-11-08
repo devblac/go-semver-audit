@@ -32,7 +32,7 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 		b.WriteString("⚠️  BREAKING CHANGES DETECTED\n\n")
 	}
 
-	if hasBreaking {
+	if breakingCount > 0 {
 		b.WriteString(fmt.Sprintf("Summary: %d breaking change(s) affecting %d location(s).\n\n", breakingCount, usageCount))
 
 		if fixes := summarizeFixes(result.Changes, 3); len(fixes) > 0 {
@@ -108,6 +108,8 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 		b.WriteString("\n")
 	}
 
+	writeTextBuildErrors(&b, result)
+
 	// Report added symbols (informational, only in verbose mode)
 	if verbose && len(changes.Added) > 0 {
 		b.WriteString("Added Symbols (informational):\n")
@@ -118,12 +120,29 @@ func FormatText(result *analyzer.Result, verbose bool) (string, error) {
 	}
 
 	// Summary
-	if hasBreaking {
+	if breakingCount > 0 {
 		b.WriteString(fmt.Sprintf("Summary: %d breaking change(s) affecting %d location(s) in your code.\n",
 			breakingCount, usageCount))
 	}
 
 	return b.String(), nil
+}
+
+// writeTextBuildErrors lists the compile errors found by -verify
+func writeTextBuildErrors(b *strings.Builder, result *analyzer.Result) {
+	if len(result.BuildErrors) == 0 {
+		return
+	}
+
+	b.WriteString(fmt.Sprintf("Compile errors with the new version (%d):\n", len(result.BuildErrors)))
+	for _, e := range result.BuildErrors {
+		b.WriteString(fmt.Sprintf("  - %s\n", e))
+	}
+	if !result.HasAPIBreakingChanges() {
+		// The README's Limitations list what the API diff misses
+		b.WriteString("  The API diff found no breaking change that explains these errors.\n")
+	}
+	b.WriteString("\n")
 }
 
 // summarizeFixes returns a short list of items to address first.

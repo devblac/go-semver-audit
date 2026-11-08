@@ -30,7 +30,7 @@ func FormatMarkdown(result *analyzer.Result) (string, error) {
 
 	if !result.HasBreakingChanges() {
 		b.WriteString("✅ No breaking changes in the APIs this project uses.\n\n")
-	} else {
+	} else if result.HasAPIBreakingChanges() {
 		breakingCount := len(changes.Removed) + len(changes.Changed) + len(changes.InterfaceChanges)
 		fmt.Fprintf(&b, "⚠️ **%s** affecting **%s** in this project.\n\n",
 			plural(breakingCount, "breaking change", "breaking changes"),
@@ -54,9 +54,29 @@ func FormatMarkdown(result *analyzer.Result) (string, error) {
 		b.WriteString("\n")
 
 		writeMarkdownDetails(&b, changes)
+	} else {
+		// Only the compile check (-verify) found a problem
+		fmt.Fprintf(&b, "⚠️ **This project does not compile with %s**, although the API diff found no breaking change that explains it.\n\n",
+			result.NewVersion)
 	}
 
+	writeMarkdownBuildErrors(&b, result.BuildErrors)
+
 	return b.String(), nil
+}
+
+// writeMarkdownBuildErrors lists the compile errors found by -verify. A code
+// block needs no escaping, and keeps the go command's file:line:col format.
+func writeMarkdownBuildErrors(b *strings.Builder, buildErrors []analyzer.BuildError) {
+	if len(buildErrors) == 0 {
+		return
+	}
+
+	fmt.Fprintf(b, "**Compile errors with the new version** (%d):\n\n```text\n", len(buildErrors))
+	for _, e := range buildErrors {
+		fmt.Fprintf(b, "%s\n", e)
+	}
+	b.WriteString("```\n\n")
 }
 
 // writeMarkdownRow writes one table row for a breaking change

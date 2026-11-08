@@ -36,7 +36,7 @@ func currentVersion() string {
 // CI can tell "the upgrade is risky" apart from "the audit did not run".
 const (
 	exitOK       = 0 // analysis completed, nothing to report
-	exitBreaking = 1 // breaking changes found
+	exitBreaking = 1 // breaking changes found, or compile errors with -verify
 	exitError    = 2 // the analysis could not be completed
 )
 
@@ -47,6 +47,7 @@ type config struct {
 	jsonOutput     bool
 	htmlOutput     bool
 	markdownOutput bool
+	verify         bool
 	verbose        bool
 	// Deprecated flags, accepted so existing scripts keep working
 	deprecatedStrict bool
@@ -57,6 +58,7 @@ type config struct {
 // Allow dependency injection for testing.
 type analyzerClient interface {
 	Analyze(*analyzer.Upgrade) (*analyzer.Result, error)
+	VerifyBuild(module, version string) ([]analyzer.BuildError, error)
 }
 
 var (
@@ -116,6 +118,8 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.markdownOutput, "markdown", false, "Output results as GitHub-flavored Markdown (for PR comments)")
 	flag.StringVar(&cfg.listUpgrades, "list-upgrades", "",
 		"Print module@version for each direct dependency whose version differs between\nthe project's go.mod and the given go.mod, then exit")
+	flag.BoolVar(&cfg.verify, "verify", false,
+		"Also type-check the project against the new version and report compile errors\n(slower; catches breaks the API diff misses, without modifying the project)")
 	flag.BoolVar(&cfg.verbose, "v", false, "Verbose output")
 	flag.BoolVar(&cfg.showVersion, "version", false, "Show version information")
 	flag.BoolVar(&cfg.deprecatedStrict, "strict", false, "Deprecated, has no effect: no check produces warnings any more")
@@ -132,7 +136,7 @@ func parseFlags() config {
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -list-upgrades /tmp/pr-head/go.mod\n")
 		fmt.Fprintf(stderrWriter, "\nExit codes:\n")
 		fmt.Fprintf(stderrWriter, "  %d  no breaking changes\n", exitOK)
-		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected\n", exitBreaking)
+		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected (or, with -verify, compile errors)\n", exitBreaking)
 		fmt.Fprintf(stderrWriter, "  %d  the analysis could not be completed\n", exitError)
 	}
 
@@ -199,6 +203,24 @@ func run(cfg config) error {
 	result, err := a.Analyze(moduleUpgrade)
 	if err != nil {
 		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	if cfg.verify && result.OldModule != "" {
+		// The project imports the old module path, so requiring the new one
+		// changes nothing it compiles: every check would pass. A real major
+		// upgrade also rewrites the imports, which -verify does not do.
+		fmt.Fprintf(stderrWriter, "Warning: -verify is skipped for major version upgrades (%s -> %s); the project's imports would have to be rewritten first\n", result.OldModule, result.Module)
+	} else if cfg.verify {
+		if cfg.verbose {
+			fmt.Fprintf(stderrWriter, "Type-checking the project against %s@%s\n", result.Module, result.NewVersion)
+		}
+		// result.NewVersion is the concrete version analyzed, even for queries
+		// such as "latest", so both checks look at the same code
+		buildErrors, err := a.VerifyBuild(result.Module, result.NewVersion)
+		if err != nil {
+			return fmt.Errorf("compile check failed: %w", err)
+		}
+		result.BuildErrors = buildErrors
 	}
 
 	// Generate report
