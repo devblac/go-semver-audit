@@ -1,5 +1,6 @@
-// Package gomod compares go.mod files to find which dependencies an update
-// changes, such as the ones in a Dependabot or Renovate pull request.
+// Package gomod finds which dependencies to audit: the ones an update changes,
+// such as a Dependabot or Renovate pull request, by comparing go.mod files, or
+// the ones with a newer version available, by asking the go command.
 package gomod
 
 import (

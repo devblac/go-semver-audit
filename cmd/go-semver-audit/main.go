@@ -1,12 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 
 	"github.com/devblac/go-semver-audit/internal/analyzer"
 	"github.com/devblac/go-semver-audit/internal/gomod"
@@ -44,6 +46,7 @@ type config struct {
 	projectPath    string
 	upgrade        string
 	listUpgrades   string
+	all            bool
 	jsonOutput     bool
 	htmlOutput     bool
 	markdownOutput bool
@@ -57,6 +60,7 @@ type config struct {
 
 // Allow dependency injection for testing.
 type analyzerClient interface {
+	LoadProject() error
 	Analyze(*analyzer.Upgrade) (*analyzer.Result, error)
 	VerifyBuild(module, version string) ([]analyzer.BuildError, error)
 }
@@ -66,14 +70,15 @@ var (
 	newAnalyzerFn  = func(projectPath string) (analyzerClient, error) {
 		return analyzer.New(projectPath)
 	}
-	formatJSONFn               = report.FormatJSON
-	formatHTMLFn               = report.FormatHTML
-	formatMarkdownFn           = report.FormatMarkdown
-	formatTextFn               = report.FormatText
-	exitFunc                   = os.Exit
-	readBuildInfo              = debug.ReadBuildInfo
-	stdoutWriter     io.Writer = os.Stdout
-	stderrWriter     io.Writer = os.Stderr
+	availableUpdatesFn           = gomod.AvailableUpdates
+	formatJSONFn                 = report.FormatJSON
+	formatHTMLFn                 = report.FormatHTML
+	formatMarkdownFn             = report.FormatMarkdown
+	formatTextFn                 = report.FormatText
+	exitFunc                     = os.Exit
+	readBuildInfo                = debug.ReadBuildInfo
+	stdoutWriter       io.Writer = os.Stdout
+	stderrWriter       io.Writer = os.Stderr
 )
 
 func main() {
@@ -82,6 +87,26 @@ func main() {
 	if cfg.showVersion {
 		fmt.Fprintf(stdoutWriter, "go-semver-audit version %s\n", currentVersion())
 		exitFunc(exitOK)
+		return
+	}
+
+	if cfg.all {
+		if cfg.upgrade != "" || cfg.listUpgrades != "" {
+			fmt.Fprintln(stderrWriter, "Error: -all cannot be combined with -upgrade or -list-upgrades")
+			exitFunc(exitError)
+			return
+		}
+		if cfg.verify {
+			// Each upgrade would need its own go get and type-check of the
+			// whole project; not supported yet rather than silently ignored
+			fmt.Fprintln(stderrWriter, "Error: -verify is not supported with -all yet")
+			exitFunc(exitError)
+			return
+		}
+		if err := runAll(cfg); err != nil {
+			fmt.Fprintf(stderrWriter, "Error: %v\n", err)
+			exitFunc(exitError)
+		}
 		return
 	}
 
@@ -96,6 +121,7 @@ func main() {
 	if cfg.upgrade == "" {
 		fmt.Fprintln(stderrWriter, "Error: -upgrade flag is required")
 		fmt.Fprintln(stderrWriter, "Usage: go-semver-audit -upgrade module@version [options]")
+		fmt.Fprintln(stderrWriter, "   or: go-semver-audit -all [options]")
 		flag.Usage()
 		exitFunc(exitError)
 		return
@@ -120,6 +146,8 @@ func parseFlags() config {
 		"Print module@version for each direct dependency whose version differs between\nthe project's go.mod and the given go.mod, then exit")
 	flag.BoolVar(&cfg.verify, "verify", false,
 		"Also type-check the project against the new version and report compile errors\n(slower; catches breaks the API diff misses, without modifying the project)")
+	flag.BoolVar(&cfg.all, "all", false,
+		"Audit every direct dependency that has a newer version within its major version,\nas reported by 'go list -m -u'. Cannot be combined with -upgrade or -list-upgrades")
 	flag.BoolVar(&cfg.verbose, "v", false, "Verbose output")
 	flag.BoolVar(&cfg.showVersion, "version", false, "Show version information")
 	flag.BoolVar(&cfg.deprecatedStrict, "strict", false, "Deprecated, has no effect: no check produces warnings any more")
@@ -134,10 +162,13 @@ func parseFlags() config {
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -upgrade github.com/pkg/errors@v0.9.1\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -path ./myproject -upgrade github.com/gin-gonic/gin@v1.9.0 -json\n")
 		fmt.Fprintf(stderrWriter, "  go-semver-audit -list-upgrades /tmp/pr-head/go.mod\n")
+		fmt.Fprintf(stderrWriter, "  go-semver-audit -all -markdown\n")
 		fmt.Fprintf(stderrWriter, "\nExit codes:\n")
 		fmt.Fprintf(stderrWriter, "  %d  no breaking changes\n", exitOK)
 		fmt.Fprintf(stderrWriter, "  %d  breaking changes detected (or, with -verify, compile errors)\n", exitBreaking)
 		fmt.Fprintf(stderrWriter, "  %d  the analysis could not be completed\n", exitError)
+		fmt.Fprintf(stderrWriter, "With -all: %d if any upgrade breaks the project, otherwise %d if any upgrade\n", exitBreaking, exitError)
+		fmt.Fprintf(stderrWriter, "could not be analyzed, otherwise %d. A failure never hides a breaking change.\n", exitOK)
 	}
 
 	flag.Parse()
@@ -167,8 +198,9 @@ func listUpgrades(cfg config) error {
 	return nil
 }
 
-func run(cfg config) error {
-	// Validate output flags before spending time on the analysis
+// checkOutputFlags rejects conflicting output flags before any time is spent
+// on the analysis
+func checkOutputFlags(cfg config) error {
 	formats := 0
 	for _, enabled := range []bool{cfg.jsonOutput, cfg.htmlOutput, cfg.markdownOutput} {
 		if enabled {
@@ -177,6 +209,13 @@ func run(cfg config) error {
 	}
 	if formats > 1 {
 		return fmt.Errorf("use only one of -json, -html or -markdown")
+	}
+	return nil
+}
+
+func run(cfg config) error {
+	if err := checkOutputFlags(cfg); err != nil {
+		return err
 	}
 
 	warnDeprecatedFlags(cfg)
@@ -254,6 +293,108 @@ func run(cfg config) error {
 func determineExitCode(result *analyzer.Result) int {
 	if result.HasBreakingChanges() {
 		return exitBreaking
+	}
+	return exitOK
+}
+
+// runAll audits every direct dependency that has a newer version available.
+// One module failing to analyze does not stop the others: it is reported
+// alongside their results and decides the exit code only if nothing broke.
+func runAll(cfg config) error {
+	if err := checkOutputFlags(cfg); err != nil {
+		return err
+	}
+
+	warnDeprecatedFlags(cfg)
+
+	if cfg.verbose {
+		fmt.Fprintf(stderrWriter, "Looking up available updates for: %s\n", cfg.projectPath)
+	}
+	upgrades, lookupErrors, err := availableUpdatesFn(cfg.projectPath)
+	if err != nil {
+		return fmt.Errorf("failed to list available updates: %w", err)
+	}
+
+	audit := &report.Audit{}
+	for _, lookupErr := range lookupErrors {
+		audit.Failed = append(audit.Failed, report.Failure{
+			Module:     lookupErr.Module,
+			OldVersion: lookupErr.Version,
+			Error:      "failed to look up available updates: " + lookupErr.Err,
+		})
+	}
+
+	if len(upgrades) > 0 {
+		a, err := newAnalyzerFn(cfg.projectPath)
+		if err != nil {
+			return fmt.Errorf("failed to initialize analyzer: %w", err)
+		}
+		// A project that does not build would fail every module the same way,
+		// so that fails the whole run instead of being reported per module
+		if err := a.LoadProject(); err != nil {
+			return err
+		}
+
+		for i, upgrade := range upgrades {
+			if cfg.verbose {
+				fmt.Fprintf(stderrWriter, "[%d/%d] Upgrade: %s %s -> %s\n",
+					i+1, len(upgrades), upgrade.Module, upgrade.OldVersion, upgrade.NewVersion)
+			}
+
+			result, err := a.Analyze(&analyzer.Upgrade{Module: upgrade.Module, NewVersion: upgrade.NewVersion})
+			switch {
+			case errors.Is(err, analyzer.ErrModuleNotImported):
+				// Required but never imported, e.g. only under build tags that
+				// are not active: nothing in the build can break
+				audit.NotImported = append(audit.NotImported, analyzer.Upgrade{
+					Module: upgrade.Module, OldVersion: upgrade.OldVersion, NewVersion: upgrade.NewVersion,
+				})
+			case err != nil:
+				audit.Failed = append(audit.Failed, report.Failure{
+					Module: upgrade.Module, OldVersion: upgrade.OldVersion, NewVersion: upgrade.NewVersion,
+					Error: err.Error(),
+				})
+			default:
+				audit.Results = append(audit.Results, result)
+			}
+		}
+	}
+	// Lookup and analysis failures were collected separately
+	sort.SliceStable(audit.Failed, func(i, j int) bool {
+		return audit.Failed[i].Module < audit.Failed[j].Module
+	})
+
+	var output string
+	switch {
+	case cfg.jsonOutput:
+		output, err = report.FormatJSONAudit(audit)
+	case cfg.htmlOutput:
+		output, err = report.FormatHTMLAudit(audit)
+	case cfg.markdownOutput:
+		output, err = report.FormatMarkdownAudit(audit)
+	default:
+		output, err = report.FormatTextAudit(audit, cfg.verbose)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to generate report: %w", err)
+	}
+
+	fmt.Fprint(stdoutWriter, output)
+
+	if exitCode := determineAuditExitCode(audit); exitCode != exitOK {
+		exitFunc(exitCode)
+	}
+	return nil
+}
+
+// determineAuditExitCode puts breaking changes ahead of failures: a module
+// that could not be analyzed must not hide one that is known to break
+func determineAuditExitCode(audit *report.Audit) int {
+	if audit.BreakingModules() > 0 {
+		return exitBreaking
+	}
+	if len(audit.Failed) > 0 {
+		return exitError
 	}
 	return exitOK
 }

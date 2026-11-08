@@ -30,6 +30,7 @@ Semantic versioning promises that minor and patch releases are compatible, but G
 - **Usage-Aware**: Only reports changes to APIs your code uses, test files included, with the file and line of each use
 - **Pull Request Bot**: A GitHub Action that audits every dependency a PR upgrades and comments with the result
 - **Optional Compile Check**: `-verify` type-checks your project against the new version, catching breaks the API diff cannot see, without touching your files
+- **Whole-Project Audit**: `-all` checks every direct dependency that has a newer version, in one run
 - **CI-Friendly**: JSON and Markdown output, and exit codes that tell "breaking changes" apart from "analysis failed"
 - **Nothing Is Executed**: Dependency code is downloaded and type-checked, never run
 
@@ -113,6 +114,16 @@ Compile errors with the new version (1):
 
 The upgrade is applied with `go get` to temporary copies of `go.mod` and `go.sum` (passed to the go command with `-modfile`), so the dependency's own requirements are raised as in a real upgrade, and your files are never modified. It is opt-in because it is slower: the whole project and its dependencies are type-checked once more. Code is type-checked, not compiled or linked, so no C toolchain is needed beyond what the analysis already needs.
 
+### Audit Every Available Update
+
+```bash
+go-semver-audit -all
+```
+
+`-all` asks the go command which direct dependencies have a newer version (`go list -m -u all`) and analyzes each one against the latest release within its major version, in one run. The project is type-checked once and shared across modules. The report starts with a summary line, followed by the usual report for each module and two lists: upgrades that **could not be analyzed** (with the error, e.g. a download that failed or an update lookup the proxy refused) and dependencies that are required but **not imported** by any package, which have no usage to check. One module failing does not stop the others. All output formats are supported; with `-json` the output is `{"breaking": ..., "results": [...], "errors": [...], "not_imported": [...]}`, where each entry of `results` is the object `-upgrade -json` prints. `-verify` is not supported with `-all` yet.
+
+Indirect dependencies and modules with a `replace` directive are skipped, and so are new major versions (`/v2` is a different module path, which `go list -u` does not report).
+
 ## GitHub Action: Audit Dependabot and Renovate PRs
 
 The action comments on every pull request that bumps a Go dependency, listing the breaking changes that hit **your** code — which symbols changed, the old and new signatures, and the file and line where you use them. On later pushes it updates the same comment instead of adding new ones.
@@ -193,7 +204,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-path` | Path to Go project to analyze | `.` (current directory) |
-| `-upgrade` | Dependency upgrade in format `module@version`; `module` may be a new major version path (`example.com/lib/v2`) | (required) |
+| `-upgrade` | Dependency upgrade in format `module@version`; `module` may be a new major version path (`example.com/lib/v2`) | (required, unless `-all` or `-list-upgrades`) |
+| `-all` | Audit every direct dependency that has a newer version within its major version. Cannot be combined with `-upgrade` or `-list-upgrades` | `false` |
 | `-json` | Output results as JSON | `false` |
 | `-html` | Output results as HTML | `false` |
 | `-markdown` | Output results as GitHub-flavored Markdown | `false` |
@@ -211,6 +223,8 @@ Summary: 3 breaking change(s) affecting 4 location(s) in your code.
 | `0` | No breaking changes |
 | `1` | Breaking changes detected, or, with `-verify`, the project does not compile against the new version |
 | `2` | The analysis could not be completed (with `-verify`, also when the upgrade itself fails, e.g. `go get` cannot resolve the version) |
+
+With `-all`, the exit code is `1` if any upgrade breaks the project, otherwise `2` if any upgrade could not be analyzed (or the project could not be loaded), otherwise `0`. Breaking changes take precedence so that a failure on one module never hides a break found in another; check the report's error list (or `errors` in JSON) to tell whether everything was analyzed. Dependencies the project does not import do not affect the exit code.
 
 ## How It Works
 
@@ -230,6 +244,7 @@ This tool performs **static analysis only** and has inherent limitations:
 - **Major versions are matched by path**: A package of the new major version is compared with the package at the same path relative to the module root, so a package that moved or was renamed in v2 is reported as removed. If the project already requires more than one major version of the module (`example.com/lib` and `example.com/lib/v2`), an upgrade to a third is ambiguous and is refused rather than guessed. `-verify` is skipped for major version upgrades, since the project's imports would have to be rewritten first
 - **Not compared by the API diff**: Constant *values*, methods' pointer vs. value receivers, adding a struct field, which breaks unkeyed composite literals (`lib.Point{1, 2}`), fields promoted from an unexported embedded type, and changes in other modules the upgrade pulls in. Except for constant values, these show up as compile errors with `-verify`, which is opt-in because it is slower
 - **The compile check runs outside workspace mode**: `-verify` sets `GOWORK=off`, so a project that only builds within a `go.work` workspace reports errors that are not caused by the upgrade
+- **`-all` skips replaced modules**: With a `replace` directive the project builds against the replacement, which comparing two upstream versions would not describe. `-all` also needs a module proxy (or `GOPROXY=direct`) to find newer versions
 - **Possible false positives**: Renaming a *type* parameter of a generic function is reported as a signature change; a project type that happens to implement a library interface is counted as an implementation even if it is never used as one
 - **Reflection blind spots**: Dynamic calls via reflection may not be detected as usage
 - **Vendored dependencies**: Analysis assumes standard module layout; vendored code may not be handled correctly

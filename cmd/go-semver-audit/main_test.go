@@ -619,10 +619,28 @@ type stubAnalyzer struct {
 	buildErrors   []analyzer.BuildError
 	verifyErr     error
 	verifyCalls   []string
+	loadErr       error
+	loadCalls     int
+	// byModule, when set, answers Analyze per module instead
+	byModule map[string]stubOutcome
+}
+
+type stubOutcome struct {
+	result *analyzer.Result
+	err    error
+}
+
+func (s *stubAnalyzer) LoadProject() error {
+	s.loadCalls++
+	return s.loadErr
 }
 
 func (s *stubAnalyzer) Analyze(upgrade *analyzer.Upgrade) (*analyzer.Result, error) {
 	s.analyzeCalls = append(s.analyzeCalls, upgrade)
+	if s.byModule != nil {
+		outcome := s.byModule[upgrade.Module]
+		return outcome.result, outcome.err
+	}
 	return s.analyzeResult, s.analyzeErr
 }
 
@@ -634,6 +652,7 @@ func (s *stubAnalyzer) VerifyBuild(module, version string) ([]analyzer.BuildErro
 func stubGlobals() func() {
 	oldParseUpgrade := parseUpgradeFn
 	oldNewAnalyzer := newAnalyzerFn
+	oldAvailableUpdates := availableUpdatesFn
 	oldFormatJSON := formatJSONFn
 	oldFormatHTML := formatHTMLFn
 	oldFormatMarkdown := formatMarkdownFn
@@ -647,6 +666,7 @@ func stubGlobals() func() {
 	return func() {
 		parseUpgradeFn = oldParseUpgrade
 		newAnalyzerFn = oldNewAnalyzer
+		availableUpdatesFn = oldAvailableUpdates
 		formatJSONFn = oldFormatJSON
 		formatHTMLFn = oldFormatHTML
 		formatMarkdownFn = oldFormatMarkdown
